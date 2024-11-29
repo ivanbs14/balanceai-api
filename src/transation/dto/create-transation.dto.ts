@@ -6,6 +6,9 @@ export class CreateTransationDto {
   @IsNotEmpty()
   name: string;
 
+  @IsNotEmpty()
+  userId: string;
+
   @IsEnum(TransationType)
   type: TransationType;
 
