@@ -22,6 +22,11 @@ export class TransationService {
     return this.prisma.transation.findUnique({ where: { id } });
   }
 
+  // Get by User ID
+  async findByUserId(userId: string) {
+    return this.prisma.transation.findMany({ where: { userId } });
+  }
+
   // Update
   async update(id: string, data: Prisma.TransationUpdateInput) {
     return this.prisma.transation.update({

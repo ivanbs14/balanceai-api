@@ -20,6 +20,12 @@ export class TransationController {
     return this.transationService.findAll();
   }
 
+  // Get by User ID
+  @Get('user/:userId')
+  async findByUserId(@Param('userId') userId: string) {
+    return this.transationService.findByUserId(userId);
+  }
+
   // Get by ID
   @Get(':id')
   async findOne(@Param('id') id: string) {
