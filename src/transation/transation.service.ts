@@ -66,13 +66,38 @@ export class TransationService {
       },
     });
 
-    const balance = Number(deposits._sum.amount) - (Number(expenses._sum.amount) + Number(investments._sum.amount));
+    const totalTransactions = await this.prisma.transation.aggregate({
+      _sum: {
+        amount: true,
+      },
+      where: {
+        userId,
+        Date: {
+          gte: startDate,
+          lt: endDate,
+        },
+      },
+    });
+
+    const totalExpenses = Number(expenses._sum.amount) || 0;
+    const totalInvestments = Number(investments._sum.amount) || 0;
+    const totalDeposits = Number(deposits._sum.amount) || 0;
+    const totalAmount = Number(totalTransactions._sum.amount) || 0;
+
+    const balance = totalDeposits - (totalExpenses + totalInvestments);
+
+    const expensePercentage = totalAmount ? Math.round((totalExpenses / totalAmount) * 1000) / 10 : 0;
+    const investmentPercentage = totalAmount ? Math.round((totalInvestments / totalAmount) * 1000) / 10 : 0;
+    const depositPercentage = totalAmount ? Math.round((totalDeposits / totalAmount) * 1000) / 10 : 0;
 
     return {
-      totalExpenses: Number(expenses._sum.amount) || 0,
-      totalInvestments: Number(investments._sum.amount) || 0,
-      totalDeposits: Number(deposits._sum.amount) || 0,
-      balance: balance || 0,
+      totalExpenses,
+      totalInvestments,
+      totalDeposits,
+      balance,
+      expensePercentage,
+      investmentPercentage,
+      depositPercentage,
     };
   }
 
