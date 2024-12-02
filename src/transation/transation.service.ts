@@ -23,83 +23,90 @@ export class TransationService {
     const startDate = new Date(`${year}-${month}-01T00:00:00.000Z`);
     const endDate = new Date(startDate);
     endDate.setMonth(endDate.getMonth() + 1);
-
-    const expenses = await this.prisma.transation.aggregate({
-      _sum: {
-        amount: true,
-      },
-      where: {
-        userId,
-        type: 'EXPENSE',
-        Date: {
-          gte: startDate,
-          lt: endDate,
+  
+    const calculateSumByType = async (type: 'EXPENSE' | 'INVESTMENT' | 'DEPOSIT') => {
+      const result = await this.prisma.transation.aggregate({
+        _sum: { amount: true },
+        where: {
+          userId,
+          type,
+          Date: { gte: startDate, lt: endDate },
         },
-      },
-    });
-
-    const investments = await this.prisma.transation.aggregate({
-      _sum: {
-        amount: true,
-      },
-      where: {
-        userId,
-        type: 'INVESTMENT',
-        Date: {
-          gte: startDate,
-          lt: endDate,
-        },
-      },
-    });
-
-    const deposits = await this.prisma.transation.aggregate({
-      _sum: {
-        amount: true,
-      },
-      where: {
-        userId,
-        type: 'DEPOSIT',
-        Date: {
-          gte: startDate,
-          lt: endDate,
-        },
-      },
-    });
-
-    const totalTransactions = await this.prisma.transation.aggregate({
-      _sum: {
-        amount: true,
-      },
-      where: {
-        userId,
-        Date: {
-          gte: startDate,
-          lt: endDate,
-        },
-      },
-    });
-
-    const totalExpenses = Number(expenses._sum.amount) || 0;
-    const totalInvestments = Number(investments._sum.amount) || 0;
-    const totalDeposits = Number(deposits._sum.amount) || 0;
-    const totalAmount = Number(totalTransactions._sum.amount) || 0;
-
-    const balance = totalDeposits - (totalExpenses + totalInvestments);
-
-    const expensePercentage = totalAmount ? Math.round((totalExpenses / totalAmount) * 1000) / 10 : 0;
-    const investmentPercentage = totalAmount ? Math.round((totalInvestments / totalAmount) * 1000) / 10 : 0;
-    const depositPercentage = totalAmount ? Math.round((totalDeposits / totalAmount) * 1000) / 10 : 0;
-
-    return {
-      totalExpenses,
-      totalInvestments,
-      totalDeposits,
-      balance,
-      expensePercentage,
-      investmentPercentage,
-      depositPercentage,
+      });
+      return Number(result._sum.amount) || 0;
     };
-  }
+  
+    const [totalExpenses, totalInvestments, totalDeposits] = await Promise.all([
+      calculateSumByType('EXPENSE'),
+      calculateSumByType('INVESTMENT'),
+      calculateSumByType('DEPOSIT'),
+    ]);
+  
+    const totalTransactionsAmount = totalDeposits + totalInvestments + totalExpenses;
+    const balance = totalDeposits - (totalExpenses + totalInvestments);
+  
+    // Generic percentage calculation
+    const calculatePercentage = (value: number, total: number) =>
+      total ? Math.round((value / total) * 1000) / 10 : 0;
+  
+    const expensePercentage = calculatePercentage(totalExpenses, totalTransactionsAmount);
+    const investmentPercentage = calculatePercentage(totalInvestments, totalTransactionsAmount);
+    const depositPercentage = calculatePercentage(totalDeposits, totalTransactionsAmount);
+  
+    const totalTransactionsCount = await this.prisma.transation.count({
+      where: { userId, Date: { gte: startDate, lt: endDate } },
+    });
+  
+    const categoryAggregates = await this.prisma.transation.groupBy({
+      by: ['category'],
+      _sum: { amount: true },
+      _count: { id: true },
+      where: { userId, Date: { gte: startDate, lt: endDate } },
+      orderBy: { _count: { id: 'desc' } },
+      take: 4,
+    });
+  
+    const topCategories = categoryAggregates
+      .filter((category) => category.category !== 'SALARY')
+      .map((category) => ({
+      category: category.category,
+      percent: calculatePercentage(category._count.id, totalTransactionsCount),
+      value: Number(category._sum.amount) || 0,
+      }));
+
+    // Obter as 10 últimas transações do mês passado
+    const lastTransactions = await this.prisma.transation.findMany({
+      where: {
+        userId,
+        Date: { gte: startDate, lt: endDate },
+      },
+      orderBy: { Date: 'desc' },
+      take: 10,
+      select: {
+        id: true,
+        category: true,
+        amount: true,
+        type: true,
+        Date: true,
+      },
+    });
+  
+    return {
+      totalValues: {
+        totalExpenses,
+        totalInvestments,
+        totalDeposits,
+        balance,
+      },
+      percentsValues: {
+        expensePercentage,
+        investmentPercentage,
+        depositPercentage,
+      },
+      topCategories,
+      lastTransactions,
+    };
+  };  
 
   // Get by ID
   async findOne(id: string) {
