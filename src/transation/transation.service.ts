@@ -19,10 +19,14 @@ export class TransationService {
 
   // Get Total Expenses for Previous Month
   async getTotalExpensesAndInvestmentsForPreviousMonth(userId: string, month: string) {
+    // Ajustar o mês e ano para o cálculo correto
     const year = new Date().getFullYear();
-    const startDate = new Date(`${year}-${month}-01T00:00:00.000Z`);
-    const endDate = new Date(startDate);
-    endDate.setMonth(endDate.getMonth() + 1);
+    const targetMonth = parseInt(month, 10) - 1; // Índice do mês (0 para janeiro, 11 para dezembro)
+    const adjustedYear = targetMonth < 0 ? year - 1 : year; // Ajustar o ano se o mês for janeiro
+  
+    const startDate = new Date(adjustedYear, targetMonth, 1); // Primeiro dia do mês anterior
+    const endDate = new Date(startDate); 
+    endDate.setMonth(endDate.getMonth() + 1); // Primeiro dia do próximo mês
   
     const calculateSumByType = async (type: 'EXPENSE' | 'INVESTMENT' | 'DEPOSIT') => {
       const result = await this.prisma.transation.aggregate({
@@ -45,7 +49,6 @@ export class TransationService {
     const totalTransactionsAmount = totalDeposits + totalInvestments + totalExpenses;
     const balance = totalDeposits - (totalExpenses + totalInvestments);
   
-    // Generic percentage calculation
     const calculatePercentage = (value: number, total: number) =>
       total ? Math.round((value / total) * 1000) / 10 : 0;
   
@@ -69,12 +72,12 @@ export class TransationService {
     const topCategories = categoryAggregates
       .filter((category) => category.category !== 'SALARY')
       .map((category) => ({
-      category: category.category,
-      percent: calculatePercentage(category._count.id, totalTransactionsCount),
-      value: Number(category._sum.amount) || 0,
+        category: category.category,
+        percent: calculatePercentage(category._count.id, totalTransactionsCount),
+        value: Number(category._sum.amount) || 0,
       }));
-
-    // Obter as 10 últimas transações do mês passado
+  
+    // Obter as 10 últimas transações do mês anterior
     const lastTransactions = await this.prisma.transation.findMany({
       where: {
         userId,
@@ -106,7 +109,7 @@ export class TransationService {
       topCategories,
       lastTransactions,
     };
-  };  
+  };
 
   // Get by ID
   async findOne(id: string) {
