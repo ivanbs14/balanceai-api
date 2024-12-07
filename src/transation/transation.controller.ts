@@ -27,9 +27,9 @@ export class TransationController {
   }
 
   // Get by User ID
-  @Get('user/:userId')
-  async findByUserId(@Param('userId') userId: string) {
-    return this.transationService.findByUserId(userId);
+  @Get('user/:userId/:month')
+  async findByUserIdAndMonth(@Param('userId') userId: string, @Param('month') month: string) {
+    return this.transationService.findByUserIdAndMonth(userId, month);
   }
 
   // Get by ID

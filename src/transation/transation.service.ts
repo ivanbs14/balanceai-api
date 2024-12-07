@@ -118,8 +118,27 @@ export class TransationService {
   }
 
   // Get by User ID
-  async findByUserId(userId: string) {
-    return this.prisma.transation.findMany({ where: { userId } });
+  async findByUserIdAndMonth(userId: string, date: string) {
+    if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+      throw new Error('Invalid date format. Expected format: YYYY-MM-DD');
+    }
+
+    const [year, month] = date.split('-');
+    const targetMonth = parseInt(month, 10) - 1;
+
+    const startDate = new Date(Number(year), targetMonth, 1);
+    const endDate = new Date(startDate); 
+    endDate.setMonth(endDate.getMonth() + 1);
+
+    return this.prisma.transation.findMany({
+      where: {
+        userId,
+        Date: {
+          gte: startDate,
+          lt: endDate,
+        },
+      },
+    });
   }
 
   // Update
