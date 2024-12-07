@@ -18,48 +18,50 @@ export class TransationService {
   }
 
   // Get Total Expenses for Previous Month
-  async getTotalExpensesAndInvestmentsForPreviousMonth(userId: string, month: string) {
-    // Ajustar o mês e ano para o cálculo correto
-    const year = new Date().getFullYear();
-    const targetMonth = parseInt(month, 10) - 1; // Índice do mês (0 para janeiro, 11 para dezembro)
-    const adjustedYear = targetMonth < 0 ? year - 1 : year; // Ajustar o ano se o mês for janeiro
-  
-    const startDate = new Date(adjustedYear, targetMonth, 1); // Primeiro dia do mês anterior
+  async getTotalExpensesAndInvestmentsForPreviousMonth(userId: string, date: string) {
+    if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+      throw new Error('Invalid date format. Expected format: YYYY-MM-DD');
+    }
+
+    const [year, month] = date.split('-');
+    const targetMonth = parseInt(month, 10) - 1;
+
+    const startDate = new Date(Number(year), targetMonth, 1);
     const endDate = new Date(startDate); 
-    endDate.setMonth(endDate.getMonth() + 1); // Primeiro dia do próximo mês
-  
+    endDate.setMonth(endDate.getMonth() + 1);
+
     const calculateSumByType = async (type: 'EXPENSE' | 'INVESTMENT' | 'DEPOSIT') => {
       const result = await this.prisma.transation.aggregate({
-        _sum: { amount: true },
-        where: {
-          userId,
-          type,
-          Date: { gte: startDate, lt: endDate },
-        },
+      _sum: { amount: true },
+      where: {
+        userId,
+        type,
+        Date: { gte: startDate, lt: endDate },
+      },
       });
       return Number(result._sum.amount) || 0;
     };
-  
+
     const [totalExpenses, totalInvestments, totalDeposits] = await Promise.all([
       calculateSumByType('EXPENSE'),
       calculateSumByType('INVESTMENT'),
       calculateSumByType('DEPOSIT'),
     ]);
-  
+
     const totalTransactionsAmount = totalDeposits + totalInvestments + totalExpenses;
     const balance = totalDeposits - (totalExpenses + totalInvestments);
-  
+
     const calculatePercentage = (value: number, total: number) =>
       total ? Math.round((value / total) * 1000) / 10 : 0;
-  
+
     const expensePercentage = calculatePercentage(totalExpenses, totalTransactionsAmount);
     const investmentPercentage = calculatePercentage(totalInvestments, totalTransactionsAmount);
     const depositPercentage = calculatePercentage(totalDeposits, totalTransactionsAmount);
-  
+
     const totalTransactionsCount = await this.prisma.transation.count({
       where: { userId, Date: { gte: startDate, lt: endDate } },
     });
-  
+
     const categoryAggregates = await this.prisma.transation.groupBy({
       by: ['category'],
       _sum: { amount: true },
@@ -68,43 +70,42 @@ export class TransationService {
       orderBy: { _count: { id: 'desc' } },
       take: 4,
     });
-  
+
     const topCategories = categoryAggregates
       .filter((category) => category.category !== 'SALARY')
       .map((category) => ({
-        category: category.category,
-        percent: calculatePercentage(category._count.id, totalTransactionsCount),
-        value: Number(category._sum.amount) || 0,
+      category: category.category,
+      percent: calculatePercentage(category._count.id, totalTransactionsCount),
+      value: Number(category._sum.amount) || 0,
       }));
-  
-    // Obter as 10 últimas transações do mês anterior
+
     const lastTransactions = await this.prisma.transation.findMany({
       where: {
-        userId,
-        Date: { gte: startDate, lt: endDate },
+      userId,
+      Date: { gte: startDate, lt: endDate },
       },
       orderBy: { Date: 'desc' },
       take: 10,
       select: {
-        id: true,
-        category: true,
-        amount: true,
-        type: true,
-        Date: true,
+      id: true,
+      category: true,
+      amount: true,
+      type: true,
+      Date: true,
       },
     });
-  
+
     return {
       totalValues: {
-        totalExpenses,
-        totalInvestments,
-        totalDeposits,
-        balance,
+      totalExpenses,
+      totalInvestments,
+      totalDeposits,
+      balance,
       },
       percentsValues: {
-        expensePercentage,
-        investmentPercentage,
-        depositPercentage,
+      expensePercentage,
+      investmentPercentage,
+      depositPercentage,
       },
       topCategories,
       lastTransactions,

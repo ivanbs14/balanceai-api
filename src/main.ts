@@ -6,12 +6,12 @@ async function bootstrap() {
 
   // Habilitar CORS
   app.enableCors({
-    origin: process.env.CORS_ORIGIN || "http://localhost:3001",
+    origin: ["http://localhost:4000", "http://localhost:3001"], // Adicione os origins necessários
     methods: "GET,HEAD,PUT,PATCH,POST,DELETE",
     allowedHeaders: "Content-Type, Accept",
     credentials: true,
   });
 
-  await app.listen(3000);
+  await app.listen(4000);
 }
 bootstrap();
