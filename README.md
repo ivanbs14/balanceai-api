@@ -45,6 +45,21 @@ $ npm run start:dev
 $ npm run start:prod
 ```
 
+## Updated schema
+
+```bash
+
+# prisma generate  
+$ npx prisma generate 
+
+# push table and database  
+$ npx prisma migrate dev --name add_new_table
+
+# (Optional) Regenerate Prisma types 
+$ npx prisma generate
+
+```
+
 ## Test
 
 ```bash
