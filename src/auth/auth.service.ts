@@ -15,11 +15,20 @@ export class AuthService {
       where: { email },
     });
 
-    if (!user || !(await bcrypt.compare(password, user.password))) {
-      throw new UnauthorizedException("Credenciais inválidas");
+    if (!user) {
+      throw new UnauthorizedException("E-mail ou senha incorretos");
     }
 
-    const token = this.jwtService.sign({ userId: user.id });
+    const passwordMatch = await bcrypt.compare(password, user.password);
+    if (!passwordMatch) {
+      throw new UnauthorizedException("E-mail ou senha incorretos");
+    }
+
+    const token = this.jwtService.sign({
+      userId: user.id,
+      email: user.email,
+      role: user.role,
+    });
     return token;
   }
 }

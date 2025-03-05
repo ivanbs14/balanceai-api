@@ -11,6 +11,7 @@ export class UserService {
     document: string,
     email: string,
     password: string,
+    role: string,
   ) {
     const existingUserByEmail = await this.prisma.user.findUnique({
       where: { email },
@@ -36,6 +37,7 @@ export class UserService {
         document,
         email,
         password: hashedPassword,
+        role,
       },
     });
 
