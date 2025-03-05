@@ -7,17 +7,14 @@ import { PrismaService } from 'src/prisma-services/prisma.service';
 export class TransationService {
   constructor(private readonly prisma: PrismaService) {}
 
-  // Create
   async create(data: Prisma.TransationCreateInput) {
     return this.prisma.transation.create({ data });
   }
 
-  // Get All
   async findAll() {
     return this.prisma.transation.findMany();
   }
 
-  // Get Total Expenses for Previous Month
   async getTotalExpensesAndInvestmentsForPreviousMonth(userId: string, date: string) {
     if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
       throw new Error('Invalid date format. Expected format: YYYY-MM-DD');
@@ -112,12 +109,12 @@ export class TransationService {
     };
   };
 
-  // Get by ID
+
   async findOne(id: string) {
     return this.prisma.transation.findUnique({ where: { id } });
   }
 
-  // Get by User ID
+
   async findByUserIdAndMonth(userId: string, date: string) {
     if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
       throw new Error('Invalid date format. Expected format: YYYY-MM-DD');
@@ -141,7 +138,7 @@ export class TransationService {
     });
   }
 
-  // Update
+
   async update(id: string, data: Prisma.TransationUpdateInput) {
     return this.prisma.transation.update({
       where: { id },
@@ -149,7 +146,7 @@ export class TransationService {
     });
   }
 
-  // Delete
+
   async delete(id: string) {
     return this.prisma.transation.delete({ where: { id } });
   }
