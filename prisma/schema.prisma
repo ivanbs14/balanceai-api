@@ -30,6 +30,9 @@ model Transation {
   amount        Decimal                 @db.Decimal(10, 2)
   category      TransationCategory
   paymentMethod TransationPaymentMethod
+  installments    Int?      
+  installmentInfo String?  
+  nameCard  String?  
   Date          DateTime
   createdAt     DateTime                @default(now())
   updatedAt     DateTime                @updatedAt

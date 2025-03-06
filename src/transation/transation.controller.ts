@@ -27,6 +27,11 @@ export class TransationController {
   async findByUserIdAndMonth(@Param('userId') userId: string, @Param('month') month: string) {
     return this.transationService.findByUserIdAndMonth(userId, month);
   }
+  
+  @Get('year/:userId/:year')
+  async getTotalExpensesAndInvestmentsForYear(@Param('userId') userId: string, @Param('year') month: string) {
+    return this.transationService.getTotalExpensesAndInvestmentsForYear(userId, month);
+  }
 
   @Get(':id')
   async findOne(@Param('id') id: string) {
