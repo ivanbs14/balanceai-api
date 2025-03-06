@@ -8,7 +8,7 @@ async function bootstrap() {
     origin: [
       "http://localhost:3000",
       "http://localhost:3001",
-      "https://balance-2olb8gbo5-ivan-barbosas-projects.vercel.app/",
+      "https://balance-2olb8gbo5-ivan-barbosas-projects.vercel.app",
     ],
     methods: "GET,HEAD,PUT,PATCH,POST,DELETE",
     allowedHeaders: "Content-Type, Accept",
