@@ -29,6 +29,7 @@
 ## Document
 
 (https://docs.google.com/document/d/17rePauq0_ZV_9Q0b4VyD2bokxDuFkM01_2yfYdHfq94/edit?tab=t.0#heading=h.sz7lo2na1m5b) documentation for the project.
+(https://docs.google.com/document/d/19CIUUAZKRo5f1jjcauN3FW-675eV44UdtVbwlP_uDok/edit?tab=t.0) documentation for the Heroku push.
 
 ## Installation
 
