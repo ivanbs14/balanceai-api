@@ -1,5 +1,5 @@
 /* eslint-disable prettier/prettier */
-import { BadRequestException, Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma, TransationPaymentMethod } from '@prisma/client';
 import { PrismaService } from 'src/prisma-services/prisma.service';
 import { addMonths } from 'date-fns';
@@ -92,22 +92,21 @@ export class TransationService {
     });
 
     const categoryAggregates = await this.prisma.transation.groupBy({
-      by: ['category', 'type'], // Agrupando também por tipo para fazer o filtro
+      by: ['category', 'type'],
       _sum: { amount: true },
       _count: { id: true },
       where: { 
         userId, 
         Date: { gte: startDate, lt: endDate },
-        type: 'EXPENSE', // Filtrando diretamente pelo tipo 'EXPENSE'
+        type: 'EXPENSE',
       },
       orderBy: { _count: { id: 'desc' } },
       take: 4,
     });
     
     const topCategories = categoryAggregates
-      .filter((category) => category.category !== 'SALARY') // Filtrando categorias
+      .filter((category) => category.category !== 'SALARY')
       .map((category) => {
-        // Garantindo que estamos lidando apenas com transações de 'EXPENSE'
         const expensesValue = category._sum.amount ? category._sum.amount.toNumber() : 0;
     
         return {
@@ -314,6 +313,20 @@ export class TransationService {
   }
 
   async delete(id: string) {
+    const transaction = await this.prisma.transation.findUnique({ where: { id } });
+    if (!transaction) {
+      throw new NotFoundException('Transação não encontrada.');
+    }
+  
+    if (transaction.paymentMethod === TransationPaymentMethod.CREDIT_CARD) {
+      await this.prisma.transation.deleteMany({
+        where: {
+          createdAt: transaction.createdAt,
+          name: transaction.name,
+        },
+      });
+    }
+
     return this.prisma.transation.delete({ where: { id } });
   }
 }
