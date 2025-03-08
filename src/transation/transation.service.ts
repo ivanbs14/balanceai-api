@@ -331,7 +331,6 @@ export class TransationService {
     return this.prisma.transation.delete({ where: { id } });
   }
  
-
   async getTopCreditCardsByMonth(userId: string, date: string) {
     if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
       throw new Error('Invalid date format. Expected format: YYYY-MM-DD');
@@ -341,7 +340,7 @@ export class TransationService {
     const targetMonth = parseInt(month, 10) - 1;
   
     const startDate = new Date(Number(year), targetMonth, 1);
-    const endDate = new Date(startDate); 
+    const endDate = new Date(startDate);
     endDate.setMonth(endDate.getMonth() + 1);
   
     // Agregar as transações por "nameCard" e somar os valores para o mês atual
@@ -410,8 +409,9 @@ export class TransationService {
       };
     }));
   
-    return { topCredcards: topCreditCards };
-  }
+    // Limitar o número de objetos no array para no máximo 5
+    const limitedTopCreditCards = topCreditCards.slice(0, 5);
   
-  
+    return { topCredcards: limitedTopCreditCards };
+  }  
 }
