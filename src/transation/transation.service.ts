@@ -330,4 +330,88 @@ export class TransationService {
 
     return this.prisma.transation.delete({ where: { id } });
   }
+ 
+
+  async getTopCreditCardsByMonth(userId: string, date: string) {
+    if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+      throw new Error('Invalid date format. Expected format: YYYY-MM-DD');
+    }
+  
+    const [year, month] = date.split('-');
+    const targetMonth = parseInt(month, 10) - 1;
+  
+    const startDate = new Date(Number(year), targetMonth, 1);
+    const endDate = new Date(startDate); 
+    endDate.setMonth(endDate.getMonth() + 1);
+  
+    // Agregar as transações por "nameCard" e somar os valores para o mês atual
+    const creditCardAggregates = await this.prisma.transation.groupBy({
+      by: ['nameCard'],
+      _sum: { amount: true },
+      where: {
+        userId,
+        type: 'EXPENSE',
+        Date: { gte: startDate, lt: endDate },
+        paymentMethod: 'CREDIT_CARD',
+      },
+      orderBy: { _sum: { amount: 'desc' } },
+    });
+  
+    // Calcular o total das despesas para o mês atual
+    const totalExpenses = await this.prisma.transation.aggregate({
+      _sum: { amount: true },
+      where: {
+        userId,
+        type: 'EXPENSE',
+        Date: { gte: startDate, lt: endDate },
+      },
+    });
+  
+    const totalAmount = Number(totalExpenses._sum.amount) || 0;
+  
+    const topCreditCards = await Promise.all(creditCardAggregates.map(async (aggregate) => {
+      const totalValueMonth = aggregate._sum.amount ? aggregate._sum.amount.toNumber() : 0;
+  
+      // Somar o total de todas as transações feitas com o mesmo nameCard no mês atual
+      const totalValueMonthParcelado = await this.prisma.transation.aggregate({
+        _sum: { amount: true },
+        where: {
+          userId,
+          type: 'EXPENSE',
+          paymentMethod: 'CREDIT_CARD',
+          nameCard: aggregate.nameCard,
+          Date: { gte: startDate, lt: endDate },
+          installments: { gt: 0 }, // Considerando as parcelas
+        },
+      });
+  
+      const totalParceladoMonth = Number(totalValueMonthParcelado._sum.amount) || 0;
+  
+      // Somar o total de todas as transações feitas com o mesmo nameCard a partir do mês atual
+      const totalValueRemainingMonths = await this.prisma.transation.aggregate({
+        _sum: { amount: true },
+        where: {
+          userId,
+          type: 'EXPENSE',
+          paymentMethod: 'CREDIT_CARD',
+          nameCard: aggregate.nameCard,
+          Date: {
+            gte: new Date(), // A partir da data atual
+          },
+        },
+      });
+  
+      const totalRemaining = Number(totalValueRemainingMonths._sum.amount) || 0;
+  
+      return {
+        card: aggregate.nameCard,
+        valorTotalMes: totalValueMonth, // Inclui apenas transações do mês atual
+        valorTotalTodosMesesRestantes: totalRemaining + totalParceladoMonth, // Inclui as parcelas do mês atual
+      };
+    }));
+  
+    return { topCredcards: topCreditCards };
+  }
+  
+  
 }

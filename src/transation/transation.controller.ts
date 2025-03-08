@@ -28,6 +28,11 @@ export class TransationController {
     return this.transationService.findByUserIdAndMonth(userId, month);
   }
   
+  @Get('card/:userId/:date')
+  async getTopCreditCardsByMonth(@Param('userId') userId: string, @Param('date') date: string) {
+    return this.transationService.getTopCreditCardsByMonth(userId, date);
+  }
+  
   @Get('year/:userId/:year')
   async getTotalExpensesAndInvestmentsForYear(@Param('userId') userId: string, @Param('year') month: string) {
     return this.transationService.getTotalExpensesAndInvestmentsForYear(userId, month);
