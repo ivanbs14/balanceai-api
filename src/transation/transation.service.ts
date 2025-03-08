@@ -22,7 +22,7 @@ export class TransationService {
 
     if (data.paymentMethod === TransationPaymentMethod.CREDIT_CARD && data.installments > 1) {
       const installmentValue = Number(data.amount) / data.installments;
-      const currentDate = new Date();
+      const startDate = new Date(data.Date);
 
       for (let i = 1; i <= data.installments; i++) {
         transactions.push(
@@ -31,7 +31,7 @@ export class TransationService {
               ...data,
               amount: installmentValue, 
               installmentInfo: `${i}/${data.installments}`,
-              Date: addMonths(currentDate, i - 1),
+              Date: addMonths(startDate, i - 1),
             },
           })
         );
@@ -306,14 +306,12 @@ export class TransationService {
     });
   }
 
-
   async update(id: string, data: Prisma.TransationUpdateInput) {
     return this.prisma.transation.update({
       where: { id },
       data,
     });
   }
-
 
   async delete(id: string) {
     return this.prisma.transation.delete({ where: { id } });
