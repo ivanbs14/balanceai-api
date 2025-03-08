@@ -325,6 +325,7 @@ export class TransationService {
           name: transaction.name,
         },
       });
+      return;
     }
 
     return this.prisma.transation.delete({ where: { id } });
