@@ -331,6 +331,42 @@ export class TransationService {
     return this.prisma.transation.delete({ where: { id } });
   }
  
+  async findByNameCard(nameCard: string) {
+    const card = await this.prisma.transation.findFirst({
+      where: {
+        paymentMethod: 'CREDIT_CARD',
+        nameCard: {
+          contains: nameCard.trim(),
+          mode: 'insensitive',
+        },
+      },
+      orderBy: {
+        nameCard: 'asc',
+      },
+    });
+  
+    return card ? card.nameCard : null;
+  }
+
+  async getUniqueCreditCardNames(): Promise<string[]> {
+    const transactions = await this.prisma.transation.findMany({
+      where: {
+        paymentMethod: 'CREDIT_CARD',
+        nameCard: {
+          not: null,
+        },
+      },
+      select: {
+        nameCard: true,
+      },
+    });
+
+    // Criar um Set para remover repetições e converter para array
+    const uniqueNames = Array.from(new Set(transactions.map(t => t.nameCard)));
+    
+    return uniqueNames;
+  }
+
   async getTopCreditCardsByMonth(userId: string, date: string) {
     if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
       throw new Error('Invalid date format. Expected format: YYYY-MM-DD');
@@ -380,7 +416,7 @@ export class TransationService {
           paymentMethod: 'CREDIT_CARD',
           nameCard: aggregate.nameCard,
           Date: { gte: startDate, lt: endDate },
-          installments: { gt: 0 }, // Considerando as parcelas
+          installments: { gt: 0 },
         },
       });
   
@@ -395,7 +431,7 @@ export class TransationService {
           paymentMethod: 'CREDIT_CARD',
           nameCard: aggregate.nameCard,
           Date: {
-            gte: new Date(), // A partir da data atual
+            gte: new Date(),
           },
         },
       });
@@ -404,12 +440,10 @@ export class TransationService {
   
       return {
         card: aggregate.nameCard,
-        valorTotalMes: totalValueMonth, // Inclui apenas transações do mês atual
-        valorTotalTodosMesesRestantes: totalRemaining + totalParceladoMonth, // Inclui as parcelas do mês atual
+        valorTotalMes: totalValueMonth,
+        valorTotalTodosMesesRestantes: totalRemaining + totalParceladoMonth,
       };
     }));
-  
-    // Limitar o número de objetos no array para no máximo 5
     const limitedTopCreditCards = topCreditCards.slice(0, 5);
   
     return { topCredcards: limitedTopCreditCards };
