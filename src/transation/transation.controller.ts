@@ -38,6 +38,16 @@ export class TransationController {
     return this.transationService.getTotalExpensesAndInvestmentsForYear(userId, month);
   }
 
+  @Get('card-names')
+  async getUniqueCreditCardNames(): Promise<string[]> {
+    return this.transationService.getUniqueCreditCardNames();
+  }
+
+  @Get('find-card/:nameCard')
+  async findByNameCard(@Param('nameCard') nameCard: string) {
+    return this.transationService.findByNameCard(nameCard);
+  }
+
   @Get(':id')
   async findOne(@Param('id') id: string) {
     return this.transationService.findOne(id);
