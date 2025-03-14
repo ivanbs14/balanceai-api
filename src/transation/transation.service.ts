@@ -346,11 +346,12 @@ export class TransationService {
     });
   
     return card ? card.nameCard : null;
-  }
+  };
 
-  async getUniqueCreditCardNames(): Promise<string[]> {
+  async getUniqueCreditCardNames(userId: string): Promise<string[]> {
     const transactions = await this.prisma.transation.findMany({
       where: {
+        userId: userId,
         paymentMethod: 'CREDIT_CARD',
         nameCard: {
           not: null,
@@ -361,9 +362,7 @@ export class TransationService {
       },
     });
 
-    // Criar um Set para remover repetições e converter para array
     const uniqueNames = Array.from(new Set(transactions.map(t => t.nameCard)));
-    
     return uniqueNames;
   }
 
@@ -402,6 +401,7 @@ export class TransationService {
       },
     });
   
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     const totalAmount = Number(totalExpenses._sum.amount) || 0;
   
     const topCreditCards = await Promise.all(creditCardAggregates.map(async (aggregate) => {
