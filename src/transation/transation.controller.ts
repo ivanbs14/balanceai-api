@@ -23,6 +23,11 @@ export class TransationController {
     return this.transationService.getTotalExpensesAndInvestmentsForPreviousMonth(userId, month);
   }
 
+  @Get('previous-date/:userId/:date')
+  async getAllBalanceDate(@Param('userId') userId: string, @Param('date') date: string) {
+    return this.transationService.getAllBalance(userId, date);
+  }
+
   @Get('user/:userId/:month')
   async findByUserIdAndMonth(@Param('userId') userId: string, @Param('month') month: string) {
     return this.transationService.findByUserIdAndMonth(userId, month);
