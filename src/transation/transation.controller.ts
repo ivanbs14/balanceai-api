@@ -18,11 +18,6 @@ export class TransationController {
     return this.transationService.findAll();
   }
 
-  @Get('expenses/previous-month/:userId/:month')
-  async getTotalExpensesForPreviousMonth(@Param('userId') userId: string, @Param('month') month: string) {
-    return this.transationService.getTotalExpensesAndInvestmentsForPreviousMonth(userId, month);
-  }
-
   @Get('previous-date/:userId/:date')
   async getAllBalanceDate(@Param('userId') userId: string, @Param('date') date: string) {
     return this.transationService.getAllBalance(userId, date);
@@ -36,11 +31,6 @@ export class TransationController {
   @Get('card/:userId/:date')
   async getTopCreditCardsByMonth(@Param('userId') userId: string, @Param('date') date: string) {
     return this.transationService.getTopCreditCardsByMonth(userId, date);
-  }
-  
-  @Get('year/:userId/:year')
-  async getTotalExpensesAndInvestmentsForYear(@Param('userId') userId: string, @Param('year') month: string) {
-    return this.transationService.getTotalExpensesAndInvestmentsForYear(userId, month);
   }
 
   @Get('card-names/:userId')
