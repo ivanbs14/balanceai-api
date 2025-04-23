@@ -65,19 +65,36 @@ export class TransationService {
     return this.prisma.transation.findUnique({ where: { id } });
   }
 
-  async findByUserIdAndMonth(userId: string, date: string) {
+  async findByUserIdAndMonth(userId: string, date: string, page: number = 1, pageSize: number = 10) {
     if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
       throw new Error('Invalid date format. Expected format: YYYY-MM-DD');
     }
-
+  
     const [year, month] = date.split('-');
     const targetMonth = parseInt(month, 10) - 1;
-
+  
     const startDate = new Date(Number(year), targetMonth, 1);
-    const endDate = new Date(startDate); 
+    const endDate = new Date(startDate);
     endDate.setMonth(endDate.getMonth() + 1);
-
-    return this.prisma.transation.findMany({
+  
+    // Cálculo de skip para paginar corretamente
+    const skip = (page - 1) * pageSize;
+  
+    // Obter os registros paginados
+    const transactions = await this.prisma.transation.findMany({
+      where: {
+        userId,
+        Date: {
+          gte: startDate,
+          lt: endDate,
+        },
+      },
+      skip,
+      take: pageSize,
+    });
+  
+    // Obter o total de registros para calcular o total de páginas
+    const totalRecords = await this.prisma.transation.count({
       where: {
         userId,
         Date: {
@@ -86,7 +103,17 @@ export class TransationService {
         },
       },
     });
-  }
+  
+    // Calcular o total de páginas
+    const totalPages = Math.ceil(totalRecords / pageSize);
+  
+    return {
+      transactions,
+      totalPages,
+      currentPage: page,
+      pageSize,
+    };
+  };  
 
   async update(id: string, data: Prisma.TransationUpdateInput) {
     return this.prisma.transation.update({
@@ -308,15 +335,18 @@ export class TransationService {
     const totalInvestments = getSum(transactionAggregates, 'INVESTMENT') - totalExpensesInvestments;
     const totalDeposits = getSum(transactionAggregates, 'DEPOSIT');
   
-    const totalTransactionsAmount = totalDeposits + totalInvestments + totalExpenses;
+    const totalTransactionsAmount = totalDeposits - totalInvestments - totalExpenses;
     const balance = totalDeposits - (totalExpenses + totalInvestmentsByBalance);
   
     const calculatePercentage = (value: number, total: number) =>
       total ? Math.round((value / total) * 1000) / 10 : 0;
   
-    const expensePercentage = calculatePercentage(totalExpenses, totalTransactionsAmount);
-    const investmentPercentage = calculatePercentage(totalInvestments, totalTransactionsAmount);
-    const depositPercentage = calculatePercentage(totalDeposits, totalTransactionsAmount);
+    const expensePercentage = calculatePercentage(totalExpenses, totalDeposits);
+    const investmentPercentage = calculatePercentage(totalInvestments, totalDeposits);
+    const depositPercentage = calculatePercentage(totalTransactionsAmount, totalDeposits);
+    console.log('expensePercentage', expensePercentage, totalExpenses, totalTransactionsAmount);
+    console.log('investmentPercentage', investmentPercentage, totalInvestments, totalTransactionsAmount);
+    console.log('depositPercentage', depositPercentage, totalDeposits, totalTransactionsAmount);
   
     const topCategories = categoryAggregates.reduce((acc, category) => {
       if (category.category !== 'SALARY') {
