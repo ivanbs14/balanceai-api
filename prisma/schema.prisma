@@ -24,19 +24,22 @@ model User {
 }
 
 model Transation {
-  id            String                  @id @default(cuid())
-  name          String
-  type          TransationType
-  amount        Decimal                 @db.Decimal(10, 2)
-  category      TransationCategory
-  paymentMethod TransationPaymentMethod
+  id              String                  @id @default(cuid())
+  name            String
+  type            TransationType
+  amount          Decimal                 @db.Decimal(10, 2)
+  category        TransationCategory
+  paymentMethod   TransationPaymentMethod
   installments    Int?      
   installmentInfo String?  
-  nameCard  String?  
-  Date          DateTime
-  createdAt     DateTime                @default(now())
-  updatedAt     DateTime                @updatedAt
-  userId        String
+  nameCard        String?  
+  Date            DateTime
+  createdAt       DateTime                @default(now())
+  updatedAt       DateTime                @updatedAt
+  userId          String
+
+  /// Optional: Only used when `type` is `EXPENSE`. Must be `DEPOSIT` or `INVESTMENT`.
+  withdrawal      TransationType?
 }
 
 enum TransationType {

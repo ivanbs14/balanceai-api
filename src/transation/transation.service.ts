@@ -1,6 +1,6 @@
 /* eslint-disable prettier/prettier */
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { Prisma, TransationPaymentMethod } from '@prisma/client';
+import { Prisma, TransationPaymentMethod, TransationType } from '@prisma/client';
 import { PrismaService } from 'src/prisma-services/prisma.service';
 import { addMonths } from 'date-fns';
 
@@ -17,31 +17,45 @@ export class TransationService {
         'A quantidade de parcelas é obrigatória e deve ser maior que 0 para pagamentos com cartão de crédito.'
       );
     }
-
+  
+    if (data.type === TransationType.EXPENSE) {
+      if (
+        data.withdrawal !== TransationType.DEPOSIT &&
+        data.withdrawal !== TransationType.INVESTMENT
+      ) {
+        throw new BadRequestException(
+          "Para transações do tipo 'EXPENSE', o campo 'withdrawal' deve ser 'DEPOSIT' ou 'INVESTMENT'."
+        );
+      }
+    } else {
+      // Força a ausência de withdrawal quando não for EXPENSE
+      data.withdrawal = null;
+    }
+  
     const transactions = [];
-
+  
     if (data.paymentMethod === TransationPaymentMethod.CREDIT_CARD && data.installments > 1) {
       const installmentValue = Number(data.amount) / data.installments;
       const startDate = new Date(data.Date);
-
+  
       for (let i = 1; i <= data.installments; i++) {
         transactions.push(
           this.prisma.transation.create({
             data: {
               ...data,
-              amount: installmentValue, 
+              amount: installmentValue,
               installmentInfo: `${i}/${data.installments}`,
               Date: addMonths(startDate, i - 1),
             },
           })
         );
       }
-
+  
       return Promise.all(transactions);
     }
-
+  
     return this.prisma.transation.create({ data });
-  }
+  };  
 
   async findAll() {
     return this.prisma.transation.findMany();
@@ -147,7 +161,6 @@ export class TransationService {
     const endDate = new Date(startDate);
     endDate.setMonth(endDate.getMonth() + 1);
   
-    // Agrupar transações por "nameCard" e somar os valores
     const creditCardAggregates = await this.prisma.transation.groupBy({
       by: ['nameCard'],
       _sum: { amount: true },
@@ -159,65 +172,59 @@ export class TransationService {
       },
     });
   
-    // Criar um mapa para armazenar os valores somados por "nameCard"
     const cardTotals = new Map<string, number>();
   
     for (const aggregate of creditCardAggregates) {
-      const totalValueMonth = aggregate._sum.amount ? Number(aggregate._sum.amount) : 0;
+      const totalValueMonth = Number(aggregate._sum.amount) || 0;
       cardTotals.set(
         aggregate.nameCard,
         (cardTotals.get(aggregate.nameCard) || 0) + totalValueMonth
       );
     }
   
-    // Criar a lista final de cartões ordenados pelo valor total
     const topCreditCards = await Promise.all(
-      Array.from(cardTotals.entries())
-        .map(async ([nameCard, totalValueMonth]) => {
-          // Somar valores parcelados
-          const totalValueMonthParcelado = await this.prisma.transation.aggregate({
-            _sum: { amount: true },
-            where: {
-              userId,
-              type: 'EXPENSE',
-              paymentMethod: 'CREDIT_CARD',
-              nameCard,
-              Date: { gte: startDate, lt: endDate },
-              installments: { gt: 0 },
-            },
-          });
+      Array.from(cardTotals.entries()).map(async ([nameCard, totalValueMonth]) => {
+        const totalValueMonthParcelado = await this.prisma.transation.aggregate({
+          _sum: { amount: true },
+          where: {
+            userId,
+            type: 'EXPENSE',
+            paymentMethod: 'CREDIT_CARD',
+            nameCard,
+            Date: { gte: startDate, lt: endDate },
+            installments: { gt: 0 },
+          },
+        });
   
-          const totalParceladoMonth = Number(totalValueMonthParcelado._sum.amount) || 0;
+        const totalParceladoMonth = Number(totalValueMonthParcelado._sum.amount) || 0;
+        const totalValueRemainingMonths = await this.prisma.transation.aggregate({
+          _sum: { amount: true },
+          where: {
+            userId,
+            type: 'EXPENSE',
+            paymentMethod: 'CREDIT_CARD',
+            nameCard,
+            Date: { gte: endDate },
+          },
+        });
   
-          // Somar valores restantes de meses futuros
-          const totalValueRemainingMonths = await this.prisma.transation.aggregate({
-            _sum: { amount: true },
-            where: {
-              userId,
-              type: 'EXPENSE',
-              paymentMethod: 'CREDIT_CARD',
-              nameCard,
-              Date: { gte: new Date() },
-            },
-          });
+        const totalRemaining = Number(totalValueRemainingMonths._sum.amount) || 0;
   
-          const totalRemaining = Number(totalValueRemainingMonths._sum.amount) || 0;
-  
-          return {
-            card: nameCard,
-            valorTotalMes: totalValueMonth,
-            valorTotalTodosMesesRestantes: totalRemaining + totalParceladoMonth,
-          };
-        })
+        return {
+          card: nameCard,
+          valorTotalMes: totalValueMonth,
+          valorTotalTodosMesesRestantes: totalRemaining,
+          valorParceladoMes: totalParceladoMonth,
+        };
+      })
     );
   
-    // Ordenar pelo valor total do mês e limitar a 5 resultados
     const limitedTopCreditCards = topCreditCards
       .sort((a, b) => b.valorTotalMes - a.valorTotalMes)
       .slice(0, 5);
   
     return { topCredcards: limitedTopCreditCards };
-  };
+  };  
 
   async getAllBalance(userId: string, date: string) {
     if (!date || (!/^\d{4}-\d{2}-\d{2}$/.test(date) && !/^\d{4}$/.test(date))) {
@@ -229,25 +236,80 @@ export class TransationService {
     const month = isYear ? 0 : parseInt(date.split('-')[1], 10) - 1;
   
     const startDate = new Date(year, month, 1);
-    const endDate = new Date(startDate);
-    endDate.setMonth(isYear ? 12 : month + 1);
+    const endDate = new Date(year, isYear ? 12 : month + 1, 1);
   
-    const calculateSumByType = async (type: 'EXPENSE' | 'INVESTMENT' | 'DEPOSIT') => {
-      const result = await this.prisma.transation.aggregate({
+    const startOfYear = new Date(year, 0, 1);
+    const endOfYear = new Date(year + 1, 0, 1);
+  
+    const [
+      transactionAggregates,
+      totalTransactionsCount,
+      categoryAggregates,
+      lastTransactions,
+      annualAggregates,
+      withdrawalAggregates,
+      annualWithdrawalAggregates, // NOVO
+    ] = await Promise.all([
+      this.prisma.transation.groupBy({
+        by: ['type'],
         _sum: { amount: true },
-        where: { userId, type, Date: { gte: startDate, lt: endDate } },
-      });
-      return Number(result._sum.amount) || 0;
-    };
-  
-    const [totalExpenses, totalInvestments, totalDeposits] = await Promise.all([
-      calculateSumByType('EXPENSE'),
-      calculateSumByType('INVESTMENT'),
-      calculateSumByType('DEPOSIT'),
+        where: { userId, Date: { gte: startDate, lt: endDate } },
+      }),
+      this.prisma.transation.count({
+        where: { userId, Date: { gte: startDate, lt: endDate } },
+      }),
+      this.prisma.transation.groupBy({
+        by: ['category'],
+        _sum: { amount: true },
+        _count: { id: true },
+        where: { userId, Date: { gte: startDate, lt: endDate } },
+        orderBy: { _count: { id: 'desc' } },
+        take: 4,
+      }),
+      this.prisma.transation.findMany({
+        where: { userId, Date: { gte: startDate, lt: endDate } },
+        orderBy: { Date: 'desc' },
+        take: 10,
+        select: { id: true, category: true, amount: true, type: true, Date: true, name: true },
+      }),
+      this.prisma.transation.groupBy({
+        by: ['type'],
+        _sum: { amount: true },
+        where: { userId, Date: { gte: startOfYear, lt: endOfYear } },
+      }),
+      this.prisma.transation.groupBy({
+        by: ['type', 'withdrawal'],
+        _sum: { amount: true },
+        where: { userId, Date: { gte: startDate, lt: endDate } },
+      }),
+      this.prisma.transation.groupBy({ // NOVO: agregação anual por tipo + withdrawal
+        by: ['type', 'withdrawal'],
+        _sum: { amount: true },
+        where: { userId, Date: { gte: startOfYear, lt: endOfYear } },
+      }),
     ]);
   
+    const getSumWithWithdrawal = (
+      list: (Prisma.PickEnumerable<Prisma.TransationGroupByOutputType, ['type', 'withdrawal']> & {
+        _sum: { amount: Prisma.Decimal };
+      })[],
+      type: string,
+      withdrawal: string
+    ) =>
+      list.find(t => t.type === type && t.withdrawal === withdrawal)?._sum.amount.toNumber() || 0;
+  
+    const getSum = (list: typeof transactionAggregates, type: string) =>
+      Number(list.find(t => t.type === type)?._sum.amount) || 0;
+  
+    /* const totalExpensesDeposits = getSumWithWithdrawal(withdrawalAggregates, 'EXPENSE', 'DEPOSIT'); */
+    const totalExpensesInvestments = getSumWithWithdrawal(withdrawalAggregates, 'EXPENSE', 'INVESTMENT');
+    const totalExpenses = getSum(transactionAggregates, 'EXPENSE');
+    const totalInvestmentsByBalance = getSum(transactionAggregates, 'INVESTMENT');
+    const totalInvestments = getSum(transactionAggregates, 'INVESTMENT') - totalExpensesInvestments;
+    const totalDeposits = getSum(transactionAggregates, 'DEPOSIT');
+  
     const totalTransactionsAmount = totalDeposits + totalInvestments + totalExpenses;
-    const balance = totalDeposits - (totalExpenses + totalInvestments);
+    const balance = totalDeposits - (totalExpenses + totalInvestmentsByBalance);
   
     const calculatePercentage = (value: number, total: number) =>
       total ? Math.round((value / total) * 1000) / 10 : 0;
@@ -256,39 +318,52 @@ export class TransationService {
     const investmentPercentage = calculatePercentage(totalInvestments, totalTransactionsAmount);
     const depositPercentage = calculatePercentage(totalDeposits, totalTransactionsAmount);
   
-    const totalTransactionsCount = await this.prisma.transation.count({
-      where: { userId, Date: { gte: startDate, lt: endDate } },
-    });
+    const topCategories = categoryAggregates.reduce((acc, category) => {
+      if (category.category !== 'SALARY') {
+        acc.push({
+          category: category.category,
+          percent: calculatePercentage(category._count.id, totalTransactionsCount),
+          value: Number(category._sum.amount) || 0,
+        });
+      }
+      return acc;
+    }, [] as { category: string; percent: number; value: number }[]);
   
-    const categoryAggregates = await this.prisma.transation.groupBy({
-      by: ['category'],
-      _sum: { amount: true },
-      _count: { id: true },
-      where: { userId, Date: { gte: startDate, lt: endDate } },
-      orderBy: { _count: { id: 'desc' } },
-      take: 4,
-    });
+    const annualExpensesValue = getSum(annualAggregates, 'EXPENSE');
+    const annualInvestmentsValue = getSum(annualAggregates, 'INVESTMENT');
+    const annualDepositsValue = getSum(annualAggregates, 'DEPOSIT');
   
-    const topCategories = categoryAggregates
-      .filter((category) => category.category !== 'SALARY')
-      .map((category) => ({
-        category: category.category,
-        percent: calculatePercentage(category._count.id, totalTransactionsCount),
-        value: Number(category._sum.amount) || 0,
-      }));
+    const annualExpensesWithdrawnForInvestment = getSumWithWithdrawal(
+      annualWithdrawalAggregates,
+      'EXPENSE',
+      'INVESTMENT'
+    );
   
-    const lastTransactions = await this.prisma.transation.findMany({
-      where: { userId, Date: { gte: startDate, lt: endDate } },
-      orderBy: { Date: 'desc' },
-      take: 10,
-      select: { id: true, category: true, amount: true, type: true, Date: true, name: true },
-    });
+    const annualInvestmentsValueAdjusted = annualInvestmentsValue - annualExpensesWithdrawnForInvestment;
+  
+    const totalAnnualTransactions =
+      annualDepositsValue + annualExpensesValue + annualInvestmentsValue;
+  
+    const annualBalanceValue =
+      annualDepositsValue - (annualExpensesValue + annualInvestmentsValue);
   
     const anualBalance = [
-          { category: 'Balance', percent: null, value: balance },
-          { category: 'DEPÓSITOS', percent: depositPercentage, value: totalDeposits },
-          { category: 'DESPESAS', percent: expensePercentage, value: totalExpenses },
-          { category: 'INVESTIMENTOS', percent: investmentPercentage, value: totalInvestments },
+      { category: 'Balance', percent: null, value: annualBalanceValue },
+      {
+        category: 'DEPÓSITOS',
+        percent: calculatePercentage(annualDepositsValue, totalAnnualTransactions),
+        value: annualDepositsValue,
+      },
+      {
+        category: 'DESPESAS',
+        percent: calculatePercentage(annualExpensesValue, totalAnnualTransactions),
+        value: annualExpensesValue,
+      },
+      {
+        category: 'INVESTIMENTOS',
+        percent: calculatePercentage(annualInvestmentsValueAdjusted, totalAnnualTransactions),
+        value: annualInvestmentsValueAdjusted,
+      },
     ];
   
     return {
@@ -298,5 +373,5 @@ export class TransationService {
       lastTransactions,
       anualBalance,
     };
-  } 
-}
+  };  
+};
