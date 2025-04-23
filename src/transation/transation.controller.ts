@@ -1,5 +1,5 @@
 /* eslint-disable prettier/prettier */
-import { Controller, Get, Post, Put, Delete, Param, Body } from '@nestjs/common';
+import { Controller, Get, Post, Put, Delete, Param, Body, Query } from '@nestjs/common';
 import { TransationService } from './transation.service';
 import { Prisma } from '@prisma/client';
 import { CreateTransationDto } from './dto/create-transation.dto';
@@ -24,9 +24,14 @@ export class TransationController {
   }
 
   @Get('user/:userId/:month')
-  async findByUserIdAndMonth(@Param('userId') userId: string, @Param('month') month: string) {
-    return this.transationService.findByUserIdAndMonth(userId, month);
-  }
+  async findByUserIdAndMonth(
+    @Param('userId') userId: string, 
+    @Param('month') month: string,
+    @Query('page') page: number = 1,
+    @Query('pageSize') pageSize: number = 10
+  ) {
+    return this.transationService.findByUserIdAndMonth(userId, month, Number(page), Number(pageSize));
+  };
   
   @Get('card/:userId/:date')
   async getTopCreditCardsByMonth(@Param('userId') userId: string, @Param('date') date: string) {
