@@ -21,6 +21,8 @@ model User {
   password String
   role String @default("user")
   createdAt DateTime @default(now())
+
+  cards  Card[]
 }
 
 model Transation {
@@ -50,10 +52,12 @@ model Card {
   invoiceDate     DateTime
   limitBalance    Decimal   @db.Decimal(10, 2)
   invoicePayment  Decimal   @db.Decimal(10, 2)
+
+  userId          String
+  user            User       @relation(fields: [userId], references: [id])
   
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
-
 }
 
 enum TransationType {
