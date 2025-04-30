@@ -51,7 +51,7 @@ model Card {
   name            String
   invoiceDate     DateTime
   limitBalance    Decimal   @db.Decimal(10, 2)
-  invoicePayment  Decimal   @db.Decimal(10, 2)
+  invoicePayment  DateTime
 
   userId          String
   user            User       @relation(fields: [userId], references: [id])

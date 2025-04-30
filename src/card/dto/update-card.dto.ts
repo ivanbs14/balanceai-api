@@ -14,7 +14,11 @@ export class UpdateCardDto {
   @IsOptional()
   limitBalance?: string;
 
-  @IsDecimal({ decimal_digits: '2', force_decimal: true }, { message: 'O valor da fatura deve ser um número decimal com 2 casas decimais.' })
+  @IsDateString({}, { message: 'A data de fechamento da fatura deve ser uma data válida.' })
   @IsOptional()
   invoicePayment?: string;
+
+  @IsString({ message: 'O ID do usuário deve ser uma string válida.' })
+  @IsOptional()
+  userId?: string;
 }
