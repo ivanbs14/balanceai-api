@@ -35,6 +35,15 @@ export class TransationService {
     const transactions = [];
   
     if (data.paymentMethod === TransationPaymentMethod.CREDIT_CARD && data.installments > 1) {
+      // Busca o cartão pelo name
+      const card = await this.prisma.card.findFirst({
+        where: { id: data.nameCard },
+      });
+  
+      if (!card) {
+        throw new BadRequestException('Cartão não encontrado com o nome informado.');
+      }
+  
       const installmentValue = Number(data.amount) / data.installments;
       const startDate = new Date(data.Date);
   
@@ -46,6 +55,8 @@ export class TransationService {
               amount: installmentValue,
               installmentInfo: `${i}/${data.installments}`,
               Date: addMonths(startDate, i - 1),
+              cardId: card.id,
+              nameCard: card.name,
             },
           })
         );
@@ -344,9 +355,6 @@ export class TransationService {
     const expensePercentage = calculatePercentage(totalExpenses, totalDeposits);
     const investmentPercentage = calculatePercentage(totalInvestments, totalDeposits);
     const depositPercentage = calculatePercentage(totalTransactionsAmount, totalDeposits);
-    console.log('expensePercentage', expensePercentage, totalExpenses, totalTransactionsAmount);
-    console.log('investmentPercentage', investmentPercentage, totalInvestments, totalTransactionsAmount);
-    console.log('depositPercentage', depositPercentage, totalDeposits, totalTransactionsAmount);
   
     const topCategories = categoryAggregates.reduce((acc, category) => {
       if (category.category !== 'SALARY') {

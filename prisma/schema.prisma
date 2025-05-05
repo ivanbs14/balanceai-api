@@ -21,6 +21,8 @@ model User {
   password String
   role String @default("user")
   createdAt DateTime @default(now())
+
+  cards  Card[]
 }
 
 model Transation {
@@ -33,6 +35,7 @@ model Transation {
   installments    Int?      
   installmentInfo String?  
   nameCard        String?  
+  cardId          String? 
   Date            DateTime
   createdAt       DateTime                @default(now())
   updatedAt       DateTime                @updatedAt
@@ -40,6 +43,21 @@ model Transation {
 
   /// Optional: Only used when `type` is `EXPENSE`. Must be `DEPOSIT` or `INVESTMENT`.
   withdrawal      TransationType?
+  @@index([cardId])
+}
+
+model Card {
+  id              String    @id @default(cuid())
+  name            String
+  invoiceDate     DateTime
+  limitBalance    Decimal   @db.Decimal(10, 2)
+  invoicePayment  DateTime
+
+  userId          String
+  user            User       @relation(fields: [userId], references: [id])
+  
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
 }
 
 enum TransationType {
