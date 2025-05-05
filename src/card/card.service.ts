@@ -19,11 +19,16 @@ export class CardService {
   }
 
   async findAllByUserId(userId: string) {
-    return this.prisma.card.findMany({
+    const cards = await this.prisma.card.findMany({
       where: {
         userId: userId,
       },
+      orderBy: {
+        createdAt: 'asc',
+      },
     });
+  
+    return cards;
   }
 
   async findOne(id: string) {
