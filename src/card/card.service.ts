@@ -18,6 +18,14 @@ export class CardService {
     return this.prisma.card.findMany();
   }
 
+  async findAllByUserId(userId: string) {
+    return this.prisma.card.findMany({
+      where: {
+        userId: userId,
+      },
+    });
+  }
+
   async findOne(id: string) {
     return this.prisma.card.findUnique({
       where: { id },

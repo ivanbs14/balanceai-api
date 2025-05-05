@@ -18,6 +18,11 @@ export class CardController {
     return this.cardService.findAll();
   }
 
+  @Get(':userId')
+  findAllByUserId(@Param('id') id: string) {
+    return this.cardService.findAllByUserId(id);
+  }
+
   @Get(':id')
   findOne(@Param('id') id: string) {
     return this.cardService.findOne(id);
