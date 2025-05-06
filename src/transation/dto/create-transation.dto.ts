@@ -57,6 +57,9 @@ export class CreateTransationDto {
   @IsOptional()
   nameCard?: string;
 
+  @IsOptional()
+  cardId?: string;
+
   @IsDateString()
   Date: string;
 

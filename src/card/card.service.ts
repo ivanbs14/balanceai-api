@@ -37,6 +37,17 @@ export class CardService {
     });
   }
 
+  async findCardTransations(cardId: string) {
+    return this.prisma.transation.findMany({
+      where: {
+        cardId: cardId,
+      },
+      orderBy: {
+        Date: 'desc',
+      },
+    });
+  };
+
   async update(id: string, updateCardDto: UpdateCardDto) {
     return this.prisma.card.update({
       where: { id },

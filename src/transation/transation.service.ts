@@ -28,22 +28,24 @@ export class TransationService {
         );
       }
     } else {
-      // Força a ausência de withdrawal quando não for EXPENSE
       data.withdrawal = null;
+    }
+  
+    if (data.paymentMethod === TransationPaymentMethod.CREDIT_CARD && data.cardId) {
+      const card = await this.prisma.card.findUnique({
+        where: { id: data.cardId },
+      });
+  
+      if (!card) {
+        throw new BadRequestException('Cartão não encontrado para o cardId informado.');
+      }
+  
+      data.nameCard = card.name;
     }
   
     const transactions = [];
   
     if (data.paymentMethod === TransationPaymentMethod.CREDIT_CARD && data.installments > 1) {
-      // Busca o cartão pelo name
-      const card = await this.prisma.card.findFirst({
-        where: { id: data.nameCard },
-      });
-  
-      if (!card) {
-        throw new BadRequestException('Cartão não encontrado com o nome informado.');
-      }
-  
       const installmentValue = Number(data.amount) / data.installments;
       const startDate = new Date(data.Date);
   
@@ -55,8 +57,6 @@ export class TransationService {
               amount: installmentValue,
               installmentInfo: `${i}/${data.installments}`,
               Date: addMonths(startDate, i - 1),
-              cardId: card.id,
-              nameCard: card.name,
             },
           })
         );
@@ -64,7 +64,6 @@ export class TransationService {
   
       return Promise.all(transactions);
     }
-  
     return this.prisma.transation.create({ data });
   };  
 
