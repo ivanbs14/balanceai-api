@@ -11,31 +11,36 @@ export class CardController {
   @Post()
   create(@Body() createCardDto: CreateCardDto) {
     return this.cardService.create(createCardDto);
-  }
+  };
 
   @Get()
   findAll() {
     return this.cardService.findAll();
-  }
+  };
 
   @Get(':userId')
   async findAllByUserId(@Param('userId') userId: string) {
     const cards = await this.cardService.findAllByUserId(userId);
     return { data: cards };
-  }
+  };
 
   @Get(':id')
   findOne(@Param('id') id: string) {
     return this.cardService.findOne(id);
-  }
+  };
+
+  @Get('transations/:id')
+  findCardTransations(@Param('id') cardId: string) {
+    return this.cardService.findCardTransations(cardId);
+  };
 
   @Patch(':id')
   update(@Param('id') id: string, @Body() updateCardDto: UpdateCardDto) {
     return this.cardService.update(id, updateCardDto);
-  }
+  };
 
   @Delete(':id')
   remove(@Param('id') id: string) {
     return this.cardService.remove(id);
-  }
-}
+  };
+};
