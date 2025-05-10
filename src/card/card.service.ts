@@ -48,6 +48,66 @@ export class CardService {
     });
   };
 
+  async findTransationsByCard(
+  cardId: string,
+  date?: string,
+  page: number = 1,
+  pageSize: number = 10,
+) {
+  if (!cardId) {
+    throw new Error('cardId is required');
+  }
+
+  const whereClause: any = {
+    cardId,
+  };
+
+  if (date) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+      throw new Error('Invalid date format. Expected format: YYYY-MM-DD');
+    }
+
+    const [year, month] = date.split('-');
+    const targetMonth = parseInt(month, 10) - 1;
+
+    const startDate = new Date(Number(year), targetMonth, 1);
+    const endDate = new Date(startDate);
+    endDate.setMonth(endDate.getMonth() + 1);
+
+    whereClause.Date = {
+      gte: startDate,
+      lt: endDate,
+    };
+  }
+
+  const skip = (page - 1) * pageSize;
+
+  const transactions = await this.prisma.transation.findMany({
+    where: whereClause,
+    skip,
+    take: pageSize,
+    orderBy: {
+      Date: 'desc',
+    },
+  });
+
+  const totalRecords = await this.prisma.transation.count({
+    where: whereClause,
+  });
+
+  const totalPages = Math.ceil(totalRecords / pageSize);
+
+  return {
+    transactions,
+    totalPages,
+    currentPage: page,
+    pageSize,
+  };
+}
+
+
+
+
   async update(id: string, updateCardDto: UpdateCardDto) {
     return this.prisma.card.update({
       where: { id },
