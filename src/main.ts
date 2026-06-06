@@ -12,7 +12,7 @@ async function bootstrap() {
       "https://balance-neon.vercel.app",
     ],
     methods: "GET,HEAD,PUT,PATCH,POST,DELETE",
-    allowedHeaders: "Content-Type, Accept",
+    allowedHeaders: "Content-Type, Accept, Authorization",
     credentials: true,
   });
 

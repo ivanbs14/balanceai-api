@@ -5,6 +5,7 @@ import {
 } from "@nestjs/common";
 import * as bcrypt from "bcrypt";
 import { PrismaService } from "src/prisma-services/prisma.service";
+import { AuthUser } from "src/auth/auth.types";
 
 @Injectable()
 export class UserService {
@@ -45,6 +46,22 @@ export class UserService {
 
   async getById(id: string) {
     const user = await this.prisma.user.findUnique({ where: { id } });
+    if (!user) {
+      throw new NotFoundException("Usuário não encontrado");
+    }
+    return user;
+  }
+
+  async getAuthUserById(id: string): Promise<AuthUser> {
+    const user = await this.prisma.user.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        role: true,
+      },
+    });
     if (!user) {
       throw new NotFoundException("Usuário não encontrado");
     }
