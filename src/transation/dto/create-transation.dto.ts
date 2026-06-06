@@ -8,6 +8,7 @@ import {
   IsInt,
   Min,
   IsOptional,
+  IsBoolean,
   Validate,
   ValidatorConstraint,
   ValidatorConstraintInterface,
@@ -48,6 +49,10 @@ export class CreateTransationDto {
 
   @IsEnum(TransationPaymentMethod)
   paymentMethod: TransationPaymentMethod;
+
+  @IsOptional()
+  @IsBoolean()
+  isFixed?: boolean;
 
   @ValidateIf((o) => o.paymentMethod === TransationPaymentMethod.CREDIT_CARD)
   @IsInt({ message: 'A quantidade de parcelas deve ser um número inteiro' })

@@ -90,6 +90,34 @@ $ npx prisma generate
 $ npm run start
 ```
 
+## Importacao de BKP CSV
+
+Use o importador em modo seguro antes de aplicar no banco:
+
+```bash
+# dry-run (nao grava no banco)
+$ npm run db:import:bkpcsv:dry
+
+# aplica no banco
+$ npm run db:import:bkpcsv
+
+# corrige transacoes importadas anteriormente sem isFixed
+$ npm run db:import:bkpcsv:repair-fixed
+```
+
+Opcoes uteis:
+
+```bash
+# importar para um usuario especifico por email
+$ npm run db:import:bkpcsv -- --user-email=seed@balance.local
+
+# importar apenas um ano
+$ npm run db:import:bkpcsv -- --year=2026
+
+# pasta customizada de CSV
+$ npm run db:import:bkpcsv -- --path=../dados/bkpcsv
+```
+
 ## Support
 
 Nest is an MIT-licensed open source project. It can grow thanks to the sponsors and support by the amazing backers. If you'd like to join them, please [read more here](https://docs.nestjs.com/support).
