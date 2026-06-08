@@ -4,6 +4,7 @@ import {
   PrismaClient,
   TransationCategory,
   TransationPaymentMethod,
+  TransationPaymentStatus,
   TransationType,
 } from '@prisma/client';
 
@@ -37,6 +38,8 @@ type ParsedTx = {
   installmentInfo?: string;
   date: Date;
   cardName?: string;
+  paymentStatus?: TransationPaymentStatus;
+  paidAt?: Date | null;
 };
 
 type ImportStats = {
@@ -63,6 +66,8 @@ type PreparedRecord = {
     installmentInfo?: string;
     nameCard?: string;
     cardId?: string;
+    paymentStatus?: TransationPaymentStatus;
+    paidAt?: Date | null;
     Date: Date;
     withdrawal?: TransationType | null;
   };
@@ -302,6 +307,13 @@ function parseDay(value: string | undefined, fallback: number): number {
   return day;
 }
 
+function parsePaidStatus(value: string | undefined): TransationPaymentStatus | undefined {
+  const raw = normalizeKey(value);
+  if (raw === 'true') return TransationPaymentStatus.PAID;
+  if (raw === 'false') return TransationPaymentStatus.PENDING;
+  return undefined;
+}
+
 function isSummaryName(name: string): boolean {
   return SUMMARY_NAMES.has(normalizeKey(name));
 }
@@ -444,6 +456,7 @@ function parseFixedRow(row: string[], fileName: string, rowNumber: number, year:
   const amount = parseBrl(row[8]);
   if (!isValidTransactionName(name) || amount === null) return null;
 
+  const paymentStatus = parsePaidStatus(row[4]);
   const paymentRaw = normalizeText(row[6]);
   const categoryRaw = normalizeText(row[7]);
   const installments = parseInstallments(row[3]);
@@ -466,6 +479,8 @@ function parseFixedRow(row: string[], fileName: string, rowNumber: number, year:
     installmentInfo: installments?.info,
     date: createDate(year, month, day),
     cardName: undefined,
+    paymentStatus,
+    paidAt: null,
   };
 }
 
@@ -480,6 +495,7 @@ function parseMonthlyRow(
   const amount = parseBrl(row[14]);
   if (!isValidTransactionName(name) || amount === null) return null;
 
+  const paymentStatus = parsePaidStatus(row[11]);
   const paymentRaw = normalizeText(row[12]);
   const categoryRaw = normalizeText(row[13]);
   const day = parseDay(row[11], 15);
@@ -499,6 +515,8 @@ function parseMonthlyRow(
     isFixed: false,
     date: createDate(year, month, day),
     cardName: undefined,
+    paymentStatus,
+    paidAt: null,
   };
 }
 
@@ -508,6 +526,7 @@ function parseCardRow(row: string[], fileName: string, rowNumber: number, year: 
   const installments = parseInstallments(row[3]);
   if (!isValidTransactionName(name) || amount === null || !installments) return null;
 
+  const paymentStatus = parsePaidStatus(row[5]);
   const paymentRaw = normalizeText(row[6]);
   const categoryRaw = normalizeText(row[7]);
   const day = parseDay(row[5], 10);
@@ -529,6 +548,8 @@ function parseCardRow(row: string[], fileName: string, rowNumber: number, year: 
     installmentInfo: installments.info,
     date: createDate(year, month, day),
     cardName: undefined,
+    paymentStatus,
+    paidAt: null,
   };
 }
 
@@ -559,6 +580,7 @@ function parseIncomeRow(row: string[], fileName: string, rowNumber: number, year
     isFixed: false,
     date: createDate(year, month, day),
     cardName: undefined,
+    paidAt: null,
   };
 }
 
@@ -752,6 +774,8 @@ async function main() {
         installmentInfo: item.installmentInfo,
         nameCard,
         cardId,
+        paymentStatus: item.paymentStatus,
+        paidAt: item.paidAt,
         Date: item.date,
         withdrawal: item.withdrawal,
       };
@@ -884,6 +908,8 @@ async function main() {
       installmentInfo: item.installmentInfo,
       nameCard,
       cardId,
+      paymentStatus: item.paymentStatus,
+      paidAt: item.paidAt,
       Date: item.date,
       withdrawal: item.withdrawal,
     };
