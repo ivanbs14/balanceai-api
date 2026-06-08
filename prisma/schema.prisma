@@ -38,6 +38,7 @@ model Transation {
   isFixed         Boolean                 @default(false)
   installments    Int?      
   installmentInfo String?  
+  installmentGroupId String?
   nameCard        String?  
   cardId          String? 
   Date            DateTime
@@ -48,6 +49,7 @@ model Transation {
   /// Optional: Only used when `type` is `EXPENSE`. Must be `DEPOSIT` or `INVESTMENT`.
   withdrawal      TransationType?
   @@index([cardId])
+  @@index([installmentGroupId])
 }
 
 model Card {

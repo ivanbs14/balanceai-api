@@ -6,6 +6,7 @@ import {
   TransationPaymentStatus,
   TransationType,
 } from '@prisma/client';
+import { randomUUID } from 'crypto';
 import { PrismaService } from 'src/prisma-services/prisma.service';
 import { addMonths } from 'date-fns';
 import { FixedCostService } from 'src/fixed-cost/fixed-cost.service';
@@ -17,6 +18,16 @@ export class TransationService {
     private readonly prisma: PrismaService,
     private readonly fixedCostService: FixedCostService,
   ) {}
+
+  private async getOwnedTransaction(id: string, userId: string) {
+    const transaction = await this.prisma.transation.findUnique({ where: { id } });
+
+    if (!transaction || transaction.userId !== userId) {
+      throw new NotFoundException('Transação não encontrada.');
+    }
+
+    return transaction;
+  }
 
   private parseYearMonthInput(date: string, allowYear = false) {
     const yearOnlyPattern = /^\d{4}$/;
@@ -51,6 +62,63 @@ export class TransationService {
         ? 'Invalid date format. Expected format: YYYY-MM, YYYY-MM-DD or YYYY'
         : 'Invalid date format. Expected format: YYYY-MM or YYYY-MM-DD',
     );
+  }
+
+  private isInstallmentCreditCardTransaction(transaction: {
+    paymentMethod: TransationPaymentMethod;
+    installments?: number | null;
+  }) {
+    return (
+      transaction.paymentMethod === TransationPaymentMethod.CREDIT_CARD &&
+      Number(transaction.installments ?? 0) > 1
+    );
+  }
+
+  private async findOpenInstallmentsToDelete(transaction: {
+    id: string;
+    userId: string;
+    name: string;
+    cardId?: string | null;
+    amount: Prisma.Decimal;
+    createdAt: Date;
+    installments?: number | null;
+    installmentGroupId?: string | null;
+    paymentMethod: TransationPaymentMethod;
+  }) {
+    if (!this.isInstallmentCreditCardTransaction(transaction)) {
+      return [];
+    }
+
+    if (transaction.installmentGroupId) {
+      return this.prisma.transation.findMany({
+        where: {
+          installmentGroupId: transaction.installmentGroupId,
+          paymentStatus: TransationPaymentStatus.PENDING,
+        },
+        select: { id: true },
+      });
+    }
+
+    // Legacy fallback for installment purchases created before installmentGroupId existed.
+    const createdAtWindowStart = new Date(transaction.createdAt.getTime() - 60_000);
+    const createdAtWindowEnd = new Date(transaction.createdAt.getTime() + 60_000);
+
+    return this.prisma.transation.findMany({
+      where: {
+        userId: transaction.userId,
+        paymentMethod: TransationPaymentMethod.CREDIT_CARD,
+        name: transaction.name,
+        cardId: transaction.cardId ?? null,
+        amount: transaction.amount,
+        installments: transaction.installments ?? null,
+        createdAt: {
+          gte: createdAtWindowStart,
+          lte: createdAtWindowEnd,
+        },
+        paymentStatus: TransationPaymentStatus.PENDING,
+      },
+      select: { id: true },
+    });
   }
 
   async create(data: Prisma.TransationCreateInput) {
@@ -93,6 +161,7 @@ export class TransationService {
     if (data.paymentMethod === TransationPaymentMethod.CREDIT_CARD && data.installments > 1) {
       const installmentValue = Number(data.amount) / data.installments;
       const startDate = new Date(data.Date);
+      const installmentGroupId = randomUUID();
   
       for (let i = 1; i <= data.installments; i++) {
         transactions.push(
@@ -101,6 +170,7 @@ export class TransationService {
               ...data,
               amount: installmentValue,
               installmentInfo: `${i}/${data.installments}`,
+              installmentGroupId,
               Date: addMonths(startDate, i - 1),
             },
           })
@@ -112,12 +182,14 @@ export class TransationService {
     return this.prisma.transation.create({ data });
   };  
 
-  async findAll() {
-    return this.prisma.transation.findMany();
+  async findAllByUserId(userId: string) {
+    return this.prisma.transation.findMany({
+      where: { userId },
+    });
   }
 
-  async findOne(id: string) {
-    return this.prisma.transation.findUnique({ where: { id } });
+  async findOne(id: string, userId: string) {
+    return this.getOwnedTransaction(id, userId);
   }
 
   async findByUserIdAndMonth(
@@ -206,19 +278,21 @@ export class TransationService {
     };
   }
 
-  async update(id: string, data: Prisma.TransationUpdateInput) {
+  async update(id: string, userId: string, data: Prisma.TransationUpdateInput) {
+    await this.getOwnedTransaction(id, userId);
+
     return this.prisma.transation.update({
       where: { id },
       data,
     });
   }
 
-  async updatePaymentStatus(id: string, data: UpdateTransationPaymentStatusDto) {
-    const transaction = await this.prisma.transation.findUnique({ where: { id } });
-
-    if (!transaction) {
-      throw new NotFoundException('Transação não encontrada.');
-    }
+  async updatePaymentStatus(
+    id: string,
+    userId: string,
+    data: UpdateTransationPaymentStatusDto,
+  ) {
+    const transaction = await this.getOwnedTransaction(id, userId);
 
     const paidAt = data.paymentStatus === TransationPaymentStatus.PAID
       ? (data.paidAt ? new Date(data.paidAt) : new Date())
@@ -233,28 +307,43 @@ export class TransationService {
     });
   }
 
-  async delete(id: string) {
-    const transaction = await this.prisma.transation.findUnique({ where: { id } });
-    if (!transaction) {
-      throw new NotFoundException('Transação não encontrada.');
-    }
-  
-    if (transaction.paymentMethod === TransationPaymentMethod.CREDIT_CARD) {
-      await this.prisma.transation.deleteMany({
+  async delete(id: string, userId: string) {
+    const transaction = await this.getOwnedTransaction(id, userId);
+
+    if (this.isInstallmentCreditCardTransaction(transaction)) {
+      const openInstallments = await this.findOpenInstallmentsToDelete(transaction);
+
+      if (openInstallments.length === 0) {
+        return { deletedCount: 0, preservedPaidCount: transaction.installments ?? 0 };
+      }
+
+      const deleted = await this.prisma.transation.deleteMany({
         where: {
-          createdAt: transaction.createdAt,
-          name: transaction.name,
+          id: {
+            in: openInstallments.map((installment) => installment.id),
+          },
         },
       });
-      return;
+
+      return {
+        deletedCount: deleted.count,
+        preservedPaidCount: Math.max((transaction.installments ?? 0) - deleted.count, 0),
+      };
     }
 
-    return this.prisma.transation.delete({ where: { id } });
+    const deletedTransaction = await this.prisma.transation.delete({ where: { id } });
+
+    return {
+      deletedCount: 1,
+      deletedTransactionId: deletedTransaction.id,
+      preservedPaidCount: 0,
+    };
   }
  
-  async findByNameCard(nameCard: string) {
+  async findByNameCard(userId: string, nameCard: string) {
     const card = await this.prisma.transation.findFirst({
       where: {
+        userId,
         paymentMethod: 'CREDIT_CARD',
         nameCard: {
           contains: nameCard.trim(),
