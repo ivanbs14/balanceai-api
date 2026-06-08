@@ -3,10 +3,49 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import { Prisma, TransationPaymentMethod, TransationType } from '@prisma/client';
 import { PrismaService } from 'src/prisma-services/prisma.service';
 import { addMonths } from 'date-fns';
+import { FixedCostService } from 'src/fixed-cost/fixed-cost.service';
 
 @Injectable()
 export class TransationService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly fixedCostService: FixedCostService,
+  ) {}
+
+  private parseYearMonthInput(date: string, allowYear = false) {
+    const yearOnlyPattern = /^\d{4}$/;
+    const yearMonthPattern = /^\d{4}-\d{2}$/;
+    const fullDatePattern = /^\d{4}-\d{2}-\d{2}$/;
+
+    if (allowYear && yearOnlyPattern.test(date)) {
+      return {
+        year: Number.parseInt(date, 10),
+        month: 0,
+        isYear: true,
+      };
+    }
+
+    if (yearMonthPattern.test(date) || fullDatePattern.test(date)) {
+      const [yearPart, monthPart] = date.split('-');
+      const month = Number.parseInt(monthPart, 10);
+
+      if (!Number.isFinite(month) || month < 1 || month > 12) {
+        throw new BadRequestException('Invalid month value. Expected range: 01-12');
+      }
+
+      return {
+        year: Number.parseInt(yearPart, 10),
+        month: month - 1,
+        isYear: false,
+      };
+    }
+
+    throw new BadRequestException(
+      allowYear
+        ? 'Invalid date format. Expected format: YYYY-MM, YYYY-MM-DD or YYYY'
+        : 'Invalid date format. Expected format: YYYY-MM or YYYY-MM-DD',
+    );
+  }
 
   async create(data: Prisma.TransationCreateInput) {
     if (
@@ -76,14 +115,9 @@ export class TransationService {
   }
 
   async findByUserIdAndMonth(userId: string, date: string, page: number = 1, pageSize: number = 10) {
-    if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
-      throw new Error('Invalid date format. Expected format: YYYY-MM-DD');
-    }
-  
-    const [year, month] = date.split('-');
-    const targetMonth = parseInt(month, 10) - 1;
-  
-    const startDate = new Date(Number(year), targetMonth, 1);
+    const { year, month } = this.parseYearMonthInput(date);
+
+    const startDate = new Date(year, month, 1);
     const endDate = new Date(startDate);
     endDate.setMonth(endDate.getMonth() + 1);
   
@@ -124,6 +158,40 @@ export class TransationService {
       pageSize,
     };
   };  
+
+  private async findAllTransactionsByUserIdAndMonth(userId: string, date: string) {
+    const pageSize = 100;
+    const firstPage = await this.findByUserIdAndMonth(userId, date, 1, pageSize);
+    const totalPages = Math.max(1, firstPage.totalPages ?? 1);
+    const transactions = [...(firstPage.transactions ?? [])];
+
+    if (totalPages === 1) {
+      return transactions;
+    }
+
+    for (let page = 2; page <= totalPages; page += 1) {
+      const currentPage = await this.findByUserIdAndMonth(userId, date, page, pageSize);
+      transactions.push(...(currentPage.transactions ?? []));
+    }
+
+    return transactions;
+  }
+
+  async getDashboardMonthlyData(userId: string, month: string) {
+    const [summary, fixedCosts, transactions, creditCard] = await Promise.all([
+      this.getAllBalance(userId, month),
+      this.fixedCostService.findByUserIdAndMonth(userId, month),
+      this.findAllTransactionsByUserIdAndMonth(userId, month),
+      this.getTopCreditCardsByMonth(userId, month).catch(() => ({ topCredcards: [] })),
+    ]);
+
+    return {
+      summary,
+      fixedCosts,
+      transactions,
+      creditCard,
+    };
+  }
 
   async update(id: string, data: Prisma.TransationUpdateInput) {
     return this.prisma.transation.update({
@@ -187,14 +255,9 @@ export class TransationService {
   }
 
   async getTopCreditCardsByMonth(userId: string, date: string) {
-    if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
-      throw new Error('Invalid date format. Expected format: YYYY-MM-DD');
-    }
-  
-    const [year, month] = date.split('-');
-    const targetMonth = parseInt(month, 10) - 1;
-  
-    const startDate = new Date(Number(year), targetMonth, 1);
+    const { year, month } = this.parseYearMonthInput(date);
+
+    const startDate = new Date(year, month, 1);
     const endDate = new Date(startDate);
     endDate.setMonth(endDate.getMonth() + 1);
   
@@ -264,13 +327,7 @@ export class TransationService {
   };  
 
   async getAllBalance(userId: string, date: string) {
-    if (!date || (!/^\d{4}-\d{2}-\d{2}$/.test(date) && !/^\d{4}$/.test(date))) {
-      throw new Error('Invalid date format. Expected format: YYYY-MM-DD or YYYY');
-    }
-  
-    const isYear = /^\d{4}$/.test(date);
-    const year = isYear ? parseInt(date, 10) : parseInt(date.split('-')[0], 10);
-    const month = isYear ? 0 : parseInt(date.split('-')[1], 10) - 1;
+    const { year, month, isYear } = this.parseYearMonthInput(date, true);
   
     const startDate = new Date(year, month, 1);
     const endDate = new Date(year, isYear ? 12 : month + 1, 1);

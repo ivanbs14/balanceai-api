@@ -18,7 +18,7 @@ export class CardController {
     return this.cardService.findAll();
   };
 
-  @Get(':userId')
+  @Get('user/:userId')
   async findAllByUserId(@Param('userId') userId: string) {
     const cards = await this.cardService.findAllByUserId(userId);
     return { data: cards };

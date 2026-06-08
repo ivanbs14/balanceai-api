@@ -1,6 +1,6 @@
 /* eslint-disable prettier/prettier */
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { FixedCostMonthlyStatus, Prisma } from '@prisma/client';
+import { FixedCostMonthlyStatus, FixedCostRecurrence, Prisma } from '@prisma/client';
 import { addMonths } from 'date-fns';
 import { PrismaService } from 'src/prisma-services/prisma.service';
 import { CreateFixedCostDto } from './dto/create-fixed-cost.dto';
@@ -10,6 +10,10 @@ import { UpdateFixedCostMonthlyDto } from './dto/update-fixed-cost-monthly.dto';
 @Injectable()
 export class FixedCostService {
   constructor(private readonly prisma: PrismaService) {}
+
+  private mapFixedCostPaymentType(recurrence: FixedCostRecurrence) {
+    return recurrence;
+  }
 
   private validateCompetence(competence: string) {
     if (!competence || !/^\d{4}-\d{2}$/.test(competence)) {
@@ -72,6 +76,8 @@ export class FixedCostService {
 
         return {
           ...rest,
+          paymentType: this.mapFixedCostPaymentType(fixedCost.recurrence),
+          category: 'FIXED_COST',
           monthly: {
             id: monthly?.id ?? null,
             competence,

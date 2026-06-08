@@ -38,6 +38,14 @@ export class TransationController {
     return this.transationService.getTopCreditCardsByMonth(userId, date);
   }
 
+  @Get('dashboard/:userId/:month')
+  async getDashboardMonthlyData(
+    @Param('userId') userId: string,
+    @Param('month') month: string,
+  ) {
+    return this.transationService.getDashboardMonthlyData(userId, month);
+  }
+
   @Get('card-names/:userId')
   async getUniqueCreditCardNames(@Param('userId') userId: string): Promise<string[]> {
     return this.transationService.getUniqueCreditCardNames(userId);

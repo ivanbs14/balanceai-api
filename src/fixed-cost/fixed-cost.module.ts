@@ -8,5 +8,6 @@ import { FixedCostService } from './fixed-cost.service';
   imports: [PrismaModule],
   controllers: [FixedCostController],
   providers: [FixedCostService],
+  exports: [FixedCostService],
 })
 export class FixedCostModule {}
