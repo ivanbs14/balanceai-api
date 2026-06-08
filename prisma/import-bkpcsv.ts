@@ -18,6 +18,7 @@ type CliOptions = {
   defaultCardName: string;
   createMissingCards: boolean;
   repairFixed: boolean;
+  syncUser: boolean;
 };
 
 type ParsedTx = {
@@ -43,8 +44,31 @@ type ImportStats = {
   duplicatesInFile: number;
   duplicatesInDb: number;
   inserted: number;
+  deleted: number;
+  existingInDb: number;
   bySource: Record<SourceKind, number>;
   byFile: Record<string, number>;
+};
+
+type PreparedRecord = {
+  data: {
+    name: string;
+    userId: string;
+    type: TransationType;
+    amount: string;
+    category: TransationCategory;
+    paymentMethod: TransationPaymentMethod;
+    isFixed: boolean;
+    installments?: number;
+    installmentInfo?: string;
+    nameCard?: string;
+    cardId?: string;
+    Date: Date;
+    withdrawal?: TransationType | null;
+  };
+  key: string;
+  source: SourceKind;
+  fileName: string;
 };
 
 const prisma = new PrismaClient();
@@ -161,6 +185,7 @@ function parseCliOptions(): CliOptions {
     defaultCardName: 'Crédito 4',
     createMissingCards: true,
     repairFixed: false,
+    syncUser: false,
   };
 
   for (const arg of args) {
@@ -174,6 +199,10 @@ function parseCliOptions(): CliOptions {
     }
     if (arg === '--repair-fixed') {
       options.repairFixed = true;
+      continue;
+    }
+    if (arg === '--sync-user') {
+      options.syncUser = true;
       continue;
     }
     if (arg.startsWith('--path=')) {
@@ -294,6 +323,11 @@ function parseYearMonthFromFilename(fileName: string): { year: number; month: nu
   }
 
   return { year, month };
+}
+
+function rowContainsValue(row: string[], value: string): boolean {
+  const target = normalizeKey(value);
+  return row.some((cell) => normalizeKey(cell) === target);
 }
 
 function createDate(year: number, month: number, day: number): Date {
@@ -654,18 +688,26 @@ async function main() {
 
     const fullPath = path.join(options.dataPath, fileName);
     const lines = fs.readFileSync(fullPath, 'utf8').split(/\r?\n/);
+    let inCardSection = false;
 
     lines.forEach((line, index) => {
       if (!line.trim()) return;
       const row = parseCsvLine(line);
       const rowNumber = index + 1;
 
-      const parsedRows = [
-        parseFixedRow(row, fileName, rowNumber, year, month),
-        parseMonthlyRow(row, fileName, rowNumber, year, month),
-        parseCardRow(row, fileName, rowNumber, year, month),
-        parseIncomeRow(row, fileName, rowNumber, year, month),
-      ].filter((item): item is ParsedTx => item !== null);
+      if (rowContainsValue(row, 'Cartão de Crédito')) {
+        inCardSection = true;
+      }
+
+      const parsedRows = (
+        inCardSection
+          ? [parseCardRow(row, fileName, rowNumber, year, month)]
+          : [
+              parseFixedRow(row, fileName, rowNumber, year, month),
+              parseMonthlyRow(row, fileName, rowNumber, year, month),
+              parseIncomeRow(row, fileName, rowNumber, year, month),
+            ]
+      ).filter((item): item is ParsedTx => item !== null);
 
       parsedTransactions.push(...parsedRows);
     });
@@ -790,12 +832,15 @@ async function main() {
   );
 
   const seenInBatch = new Set<string>();
+  const canonicalRecords: PreparedRecord[] = [];
 
   const stats: ImportStats = {
     parsed: parsedTransactions.length,
     duplicatesInFile: 0,
     duplicatesInDb: 0,
     inserted: 0,
+    deleted: 0,
+    existingInDb: existing.length,
     bySource: {
       FIXED: 0,
       MONTHLY: 0,
@@ -804,27 +849,6 @@ async function main() {
     },
     byFile: {},
   };
-
-  const recordsToInsert: Array<{
-    data: {
-      name: string;
-      userId: string;
-      type: TransationType;
-      amount: string;
-      category: TransationCategory;
-      paymentMethod: TransationPaymentMethod;
-      isFixed: boolean;
-      installments?: number;
-      installmentInfo?: string;
-      nameCard?: string;
-      cardId?: string;
-      Date: Date;
-      withdrawal?: TransationType | null;
-    };
-    key: string;
-    source: SourceKind;
-    fileName: string;
-  }> = [];
 
   for (const item of parsedTransactions) {
     let cardId: string | undefined;
@@ -882,13 +906,8 @@ async function main() {
       continue;
     }
 
-    if (existingKeys.has(key)) {
-      stats.duplicatesInDb += 1;
-      continue;
-    }
-
     seenInBatch.add(key);
-    recordsToInsert.push({
+    canonicalRecords.push({
       data,
       key,
       source: item.source,
@@ -896,16 +915,63 @@ async function main() {
     });
   }
 
-  if (!options.dryRun) {
-    for (const chunkStart of Array.from({ length: Math.ceil(recordsToInsert.length / 100) }, (_, i) => i * 100)) {
-      const chunk = recordsToInsert.slice(chunkStart, chunkStart + 100);
+  let recordsToInsert = canonicalRecords;
+
+  if (options.syncUser) {
+    stats.deleted = existing.length;
+    stats.duplicatesInDb = existing.filter((item) =>
+      seenInBatch.has(
+        buildDedupKey({
+          ...item,
+          amount: Number(item.amount),
+        })
+      )
+    ).length;
+
+    if (!options.dryRun) {
       await prisma.$transaction(
-        chunk.map((record) =>
-          prisma.transation.create({
-            data: record.data,
-          })
-        )
+        async (tx) => {
+          await tx.transation.deleteMany({
+            where: { userId: user.id },
+          });
+
+          for (const chunkStart of Array.from(
+            { length: Math.ceil(recordsToInsert.length / 100) },
+            (_, i) => i * 100
+          )) {
+            const chunk = recordsToInsert.slice(chunkStart, chunkStart + 100);
+            await tx.transation.createMany({
+              data: chunk.map((record) => record.data),
+            });
+          }
+        },
+        {
+          maxWait: 10000,
+          timeout: 60000,
+        }
       );
+    }
+  } else {
+    recordsToInsert = canonicalRecords.filter((record) => {
+      if (existingKeys.has(record.key)) {
+        stats.duplicatesInDb += 1;
+        return false;
+      }
+
+      return true;
+    });
+
+    if (!options.dryRun) {
+      for (const chunkStart of Array.from({ length: Math.ceil(recordsToInsert.length / 100) }, (_, i) => i * 100)) {
+        const chunk = recordsToInsert.slice(chunkStart, chunkStart + 100);
+        await prisma.$transaction(
+          chunk.map((record) =>
+            prisma.transation.create({
+              data: record.data,
+            })
+          )
+        );
+      }
     }
   }
 
@@ -917,14 +983,16 @@ async function main() {
 
   console.log('');
   console.log('Importação de BKP CSV');
-  console.log(`Modo: ${options.dryRun ? 'DRY-RUN' : 'APPLY'}`);
+  console.log(`Modo: ${options.dryRun ? 'DRY-RUN' : 'APPLY'}${options.syncUser ? ' + SYNC_USER' : ''}`);
   console.log(`Usuário: ${user.email} (${user.id})`);
   console.log(`Pasta: ${options.dataPath}`);
   console.log('');
+  console.log(`Registros atuais no DB: ${stats.existingInDb}`);
   console.log(`Transações parseadas: ${stats.parsed}`);
   console.log(`Duplicadas no lote: ${stats.duplicatesInFile}`);
   console.log(`Duplicadas já no DB: ${stats.duplicatesInDb}`);
   console.log(`Prontas para inserir: ${recordsToInsert.length}`);
+  console.log(`Removidas do DB: ${stats.deleted}`);
   console.log(`Inseridas: ${stats.inserted}`);
   console.log('');
   console.log('Por origem:');
