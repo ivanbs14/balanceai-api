@@ -10,7 +10,11 @@ export class CardService {
 
   async create(createCardDto: CreateCardDto) {
     return this.prisma.card.create({
-      data: createCardDto,
+      data: {
+        ...createCardDto,
+        invoiceDate: new Date(createCardDto.invoiceDate),
+        invoicePayment: new Date(createCardDto.invoicePayment),
+      },
     });
   }
 
@@ -111,7 +115,15 @@ export class CardService {
   async update(id: string, updateCardDto: UpdateCardDto) {
     return this.prisma.card.update({
       where: { id },
-      data: updateCardDto,
+      data: {
+        ...updateCardDto,
+        ...(updateCardDto.invoiceDate
+          ? { invoiceDate: new Date(updateCardDto.invoiceDate) }
+          : {}),
+        ...(updateCardDto.invoicePayment
+          ? { invoicePayment: new Date(updateCardDto.invoicePayment) }
+          : {}),
+      },
     });
   }
 

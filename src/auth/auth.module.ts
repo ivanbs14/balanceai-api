@@ -17,5 +17,6 @@ import { CookieAuthGuard } from "./cookie-auth.guard";
   ],
   providers: [AuthService, CookieAuthGuard],
   controllers: [AuthController],
+  exports: [JwtModule, CookieAuthGuard],
 })
 export class AuthModule {}

@@ -19,6 +19,10 @@ export class TransationService {
     private readonly fixedCostService: FixedCostService,
   ) {}
 
+  private normalizeDateInput(value: string | Date) {
+    return value instanceof Date ? value : new Date(value);
+  }
+
   private async getOwnedTransaction(id: string, userId: string) {
     const transaction = await this.prisma.transation.findUnique({ where: { id } });
 
@@ -157,10 +161,11 @@ export class TransationService {
     }
   
     const transactions = [];
+    const normalizedDate = this.normalizeDateInput(data.Date as string | Date);
   
     if (data.paymentMethod === TransationPaymentMethod.CREDIT_CARD && data.installments > 1) {
       const installmentValue = Number(data.amount) / data.installments;
-      const startDate = new Date(data.Date);
+      const startDate = normalizedDate;
       const installmentGroupId = randomUUID();
   
       for (let i = 1; i <= data.installments; i++) {
@@ -179,7 +184,12 @@ export class TransationService {
   
       return Promise.all(transactions);
     }
-    return this.prisma.transation.create({ data });
+    return this.prisma.transation.create({
+      data: {
+        ...data,
+        Date: normalizedDate,
+      },
+    });
   };  
 
   async findAllByUserId(userId: string) {
@@ -283,7 +293,10 @@ export class TransationService {
 
     return this.prisma.transation.update({
       where: { id },
-      data,
+      data: {
+        ...data,
+        ...(data.Date ? { Date: this.normalizeDateInput(data.Date as string | Date) } : {}),
+      },
     });
   }
 
