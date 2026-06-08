@@ -1,9 +1,15 @@
 /* eslint-disable prettier/prettier */
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { Prisma, TransationPaymentMethod, TransationType } from '@prisma/client';
+import {
+  Prisma,
+  TransationPaymentMethod,
+  TransationPaymentStatus,
+  TransationType,
+} from '@prisma/client';
 import { PrismaService } from 'src/prisma-services/prisma.service';
 import { addMonths } from 'date-fns';
 import { FixedCostService } from 'src/fixed-cost/fixed-cost.service';
+import { UpdateTransationPaymentStatusDto } from './dto/update-transation-payment-status.dto';
 
 @Injectable()
 export class TransationService {
@@ -114,38 +120,45 @@ export class TransationService {
     return this.prisma.transation.findUnique({ where: { id } });
   }
 
-  async findByUserIdAndMonth(userId: string, date: string, page: number = 1, pageSize: number = 10) {
+  async findByUserIdAndMonth(
+    userId: string,
+    date: string,
+    page: number = 1,
+    pageSize: number = 10,
+    paymentStatus?: TransationPaymentStatus,
+  ) {
     const { year, month } = this.parseYearMonthInput(date);
 
     const startDate = new Date(year, month, 1);
     const endDate = new Date(startDate);
     endDate.setMonth(endDate.getMonth() + 1);
+
+    if (paymentStatus && !Object.values(TransationPaymentStatus).includes(paymentStatus)) {
+      throw new BadRequestException('O status de pagamento informado é inválido.');
+    }
+
+    const where: Prisma.TransationWhereInput = {
+      userId,
+      Date: {
+        gte: startDate,
+        lt: endDate,
+      },
+      ...(paymentStatus ? { paymentStatus } : {}),
+    };
   
     // Cálculo de skip para paginar corretamente
     const skip = (page - 1) * pageSize;
   
     // Obter os registros paginados
     const transactions = await this.prisma.transation.findMany({
-      where: {
-        userId,
-        Date: {
-          gte: startDate,
-          lt: endDate,
-        },
-      },
+      where,
       skip,
       take: pageSize,
     });
   
     // Obter o total de registros para calcular o total de páginas
     const totalRecords = await this.prisma.transation.count({
-      where: {
-        userId,
-        Date: {
-          gte: startDate,
-          lt: endDate,
-        },
-      },
+      where,
     });
   
     // Calcular o total de páginas
@@ -197,6 +210,26 @@ export class TransationService {
     return this.prisma.transation.update({
       where: { id },
       data,
+    });
+  }
+
+  async updatePaymentStatus(id: string, data: UpdateTransationPaymentStatusDto) {
+    const transaction = await this.prisma.transation.findUnique({ where: { id } });
+
+    if (!transaction) {
+      throw new NotFoundException('Transação não encontrada.');
+    }
+
+    const paidAt = data.paymentStatus === TransationPaymentStatus.PAID
+      ? (data.paidAt ? new Date(data.paidAt) : new Date())
+      : null;
+
+    return this.prisma.transation.update({
+      where: { id },
+      data: {
+        paymentStatus: data.paymentStatus,
+        paidAt,
+      },
     });
   }
 

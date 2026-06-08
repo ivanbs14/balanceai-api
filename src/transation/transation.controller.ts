@@ -1,8 +1,9 @@
 /* eslint-disable prettier/prettier */
-import { Controller, Get, Post, Put, Delete, Param, Body, Query } from '@nestjs/common';
+import { Controller, Get, Post, Put, Delete, Patch, Param, Body, Query } from '@nestjs/common';
 import { TransationService } from './transation.service';
-import { Prisma } from '@prisma/client';
+import { Prisma, TransationPaymentStatus } from '@prisma/client';
 import { CreateTransationDto } from './dto/create-transation.dto';
+import { UpdateTransationPaymentStatusDto } from './dto/update-transation-payment-status.dto';
 
 @Controller('transations')
 export class TransationController {
@@ -28,10 +29,25 @@ export class TransationController {
     @Param('userId') userId: string, 
     @Param('month') month: string,
     @Query('page') page: number = 1,
-    @Query('pageSize') pageSize: number = 10
+    @Query('pageSize') pageSize: number = 10,
+    @Query('paymentStatus') paymentStatus?: TransationPaymentStatus,
   ) {
-    return this.transationService.findByUserIdAndMonth(userId, month, Number(page), Number(pageSize));
+    return this.transationService.findByUserIdAndMonth(
+      userId,
+      month,
+      Number(page),
+      Number(pageSize),
+      paymentStatus,
+    );
   };
+
+  @Patch(':id/payment-status')
+  async updatePaymentStatus(
+    @Param('id') id: string,
+    @Body() data: UpdateTransationPaymentStatusDto,
+  ) {
+    return this.transationService.updatePaymentStatus(id, data);
+  }
   
   @Get('card/:userId/:date')
   async getTopCreditCardsByMonth(@Param('userId') userId: string, @Param('date') date: string) {

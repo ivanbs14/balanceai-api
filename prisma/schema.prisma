@@ -33,6 +33,8 @@ model Transation {
   amount          Decimal                 @db.Decimal(10, 2)
   category        TransationCategory
   paymentMethod   TransationPaymentMethod
+  paymentStatus   TransationPaymentStatus @default(PENDING)
+  paidAt          DateTime?
   isFixed         Boolean                 @default(false)
   installments    Int?      
   installmentInfo String?  
@@ -129,6 +131,11 @@ enum TransationPaymentMethod {
   CASH
   PIX
   OTHER
+}
+
+enum TransationPaymentStatus {
+  PENDING
+  PAID
 }
 
 enum FixedCostRecurrence {
