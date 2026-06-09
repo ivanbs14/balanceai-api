@@ -102,6 +102,22 @@ npm run start:prod
 
 By default the API listens on `http://localhost:4000`.
 
+## Render Deployment
+
+The production build uses `tsc` directly, so it does not depend on the Nest CLI binary being present in the build environment.
+
+Recommended Render settings:
+
+```bash
+# Build Command
+npm ci && npm run build
+
+# Start Command
+npm run start:prod
+```
+
+Keep `NODE_ENV=production` in runtime.
+
 ## CORS
 
 The app currently allows credentials and these frontend origins:
