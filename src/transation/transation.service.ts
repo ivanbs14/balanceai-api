@@ -1,12 +1,129 @@
 /* eslint-disable prettier/prettier */
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { Prisma, TransationPaymentMethod, TransationType } from '@prisma/client';
+import {
+  Prisma,
+  TransationPaymentMethod,
+  TransationPaymentStatus,
+  TransationType,
+} from '@prisma/client';
+import { randomUUID } from 'crypto';
 import { PrismaService } from 'src/prisma-services/prisma.service';
 import { addMonths } from 'date-fns';
+import { FixedCostService } from 'src/fixed-cost/fixed-cost.service';
+import { UpdateTransationPaymentStatusDto } from './dto/update-transation-payment-status.dto';
 
 @Injectable()
 export class TransationService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly fixedCostService: FixedCostService,
+  ) {}
+
+  private normalizeDateInput(value: string | Date) {
+    return value instanceof Date ? value : new Date(value);
+  }
+
+  private async getOwnedTransaction(id: string, userId: string) {
+    const transaction = await this.prisma.transation.findUnique({ where: { id } });
+
+    if (!transaction || transaction.userId !== userId) {
+      throw new NotFoundException('Transação não encontrada.');
+    }
+
+    return transaction;
+  }
+
+  private parseYearMonthInput(date: string, allowYear = false) {
+    const yearOnlyPattern = /^\d{4}$/;
+    const yearMonthPattern = /^\d{4}-\d{2}$/;
+    const fullDatePattern = /^\d{4}-\d{2}-\d{2}$/;
+
+    if (allowYear && yearOnlyPattern.test(date)) {
+      return {
+        year: Number.parseInt(date, 10),
+        month: 0,
+        isYear: true,
+      };
+    }
+
+    if (yearMonthPattern.test(date) || fullDatePattern.test(date)) {
+      const [yearPart, monthPart] = date.split('-');
+      const month = Number.parseInt(monthPart, 10);
+
+      if (!Number.isFinite(month) || month < 1 || month > 12) {
+        throw new BadRequestException('Invalid month value. Expected range: 01-12');
+      }
+
+      return {
+        year: Number.parseInt(yearPart, 10),
+        month: month - 1,
+        isYear: false,
+      };
+    }
+
+    throw new BadRequestException(
+      allowYear
+        ? 'Invalid date format. Expected format: YYYY-MM, YYYY-MM-DD or YYYY'
+        : 'Invalid date format. Expected format: YYYY-MM or YYYY-MM-DD',
+    );
+  }
+
+  private isInstallmentCreditCardTransaction(transaction: {
+    paymentMethod: TransationPaymentMethod;
+    installments?: number | null;
+  }) {
+    return (
+      transaction.paymentMethod === TransationPaymentMethod.CREDIT_CARD &&
+      Number(transaction.installments ?? 0) > 1
+    );
+  }
+
+  private async findOpenInstallmentsToDelete(transaction: {
+    id: string;
+    userId: string;
+    name: string;
+    cardId?: string | null;
+    amount: Prisma.Decimal;
+    createdAt: Date;
+    installments?: number | null;
+    installmentGroupId?: string | null;
+    paymentMethod: TransationPaymentMethod;
+  }) {
+    if (!this.isInstallmentCreditCardTransaction(transaction)) {
+      return [];
+    }
+
+    if (transaction.installmentGroupId) {
+      return this.prisma.transation.findMany({
+        where: {
+          installmentGroupId: transaction.installmentGroupId,
+          paymentStatus: TransationPaymentStatus.PENDING,
+        },
+        select: { id: true },
+      });
+    }
+
+    // Legacy fallback for installment purchases created before installmentGroupId existed.
+    const createdAtWindowStart = new Date(transaction.createdAt.getTime() - 60_000);
+    const createdAtWindowEnd = new Date(transaction.createdAt.getTime() + 60_000);
+
+    return this.prisma.transation.findMany({
+      where: {
+        userId: transaction.userId,
+        paymentMethod: TransationPaymentMethod.CREDIT_CARD,
+        name: transaction.name,
+        cardId: transaction.cardId ?? null,
+        amount: transaction.amount,
+        installments: transaction.installments ?? null,
+        createdAt: {
+          gte: createdAtWindowStart,
+          lte: createdAtWindowEnd,
+        },
+        paymentStatus: TransationPaymentStatus.PENDING,
+      },
+      select: { id: true },
+    });
+  }
 
   async create(data: Prisma.TransationCreateInput) {
     if (
@@ -44,10 +161,12 @@ export class TransationService {
     }
   
     const transactions = [];
+    const normalizedDate = this.normalizeDateInput(data.Date as string | Date);
   
     if (data.paymentMethod === TransationPaymentMethod.CREDIT_CARD && data.installments > 1) {
       const installmentValue = Number(data.amount) / data.installments;
-      const startDate = new Date(data.Date);
+      const startDate = normalizedDate;
+      const installmentGroupId = randomUUID();
   
       for (let i = 1; i <= data.installments; i++) {
         transactions.push(
@@ -56,6 +175,7 @@ export class TransationService {
               ...data,
               amount: installmentValue,
               installmentInfo: `${i}/${data.installments}`,
+              installmentGroupId,
               Date: addMonths(startDate, i - 1),
             },
           })
@@ -64,54 +184,63 @@ export class TransationService {
   
       return Promise.all(transactions);
     }
-    return this.prisma.transation.create({ data });
+    return this.prisma.transation.create({
+      data: {
+        ...data,
+        Date: normalizedDate,
+      },
+    });
   };  
 
-  async findAll() {
-    return this.prisma.transation.findMany();
+  async findAllByUserId(userId: string) {
+    return this.prisma.transation.findMany({
+      where: { userId },
+    });
   }
 
-  async findOne(id: string) {
-    return this.prisma.transation.findUnique({ where: { id } });
+  async findOne(id: string, userId: string) {
+    return this.getOwnedTransaction(id, userId);
   }
 
-  async findByUserIdAndMonth(userId: string, date: string, page: number = 1, pageSize: number = 10) {
-    if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
-      throw new Error('Invalid date format. Expected format: YYYY-MM-DD');
-    }
-  
-    const [year, month] = date.split('-');
-    const targetMonth = parseInt(month, 10) - 1;
-  
-    const startDate = new Date(Number(year), targetMonth, 1);
+  async findByUserIdAndMonth(
+    userId: string,
+    date: string,
+    page: number = 1,
+    pageSize: number = 10,
+    paymentStatus?: TransationPaymentStatus,
+  ) {
+    const { year, month } = this.parseYearMonthInput(date);
+
+    const startDate = new Date(year, month, 1);
     const endDate = new Date(startDate);
     endDate.setMonth(endDate.getMonth() + 1);
+
+    if (paymentStatus && !Object.values(TransationPaymentStatus).includes(paymentStatus)) {
+      throw new BadRequestException('O status de pagamento informado é inválido.');
+    }
+
+    const where: Prisma.TransationWhereInput = {
+      userId,
+      Date: {
+        gte: startDate,
+        lt: endDate,
+      },
+      ...(paymentStatus ? { paymentStatus } : {}),
+    };
   
     // Cálculo de skip para paginar corretamente
     const skip = (page - 1) * pageSize;
   
     // Obter os registros paginados
     const transactions = await this.prisma.transation.findMany({
-      where: {
-        userId,
-        Date: {
-          gte: startDate,
-          lt: endDate,
-        },
-      },
+      where,
       skip,
       take: pageSize,
     });
   
     // Obter o total de registros para calcular o total de páginas
     const totalRecords = await this.prisma.transation.count({
-      where: {
-        userId,
-        Date: {
-          gte: startDate,
-          lt: endDate,
-        },
-      },
+      where,
     });
   
     // Calcular o total de páginas
@@ -125,35 +254,109 @@ export class TransationService {
     };
   };  
 
-  async update(id: string, data: Prisma.TransationUpdateInput) {
+  private async findAllTransactionsByUserIdAndMonth(userId: string, date: string) {
+    const pageSize = 100;
+    const firstPage = await this.findByUserIdAndMonth(userId, date, 1, pageSize);
+    const totalPages = Math.max(1, firstPage.totalPages ?? 1);
+    const transactions = [...(firstPage.transactions ?? [])];
+
+    if (totalPages === 1) {
+      return transactions;
+    }
+
+    for (let page = 2; page <= totalPages; page += 1) {
+      const currentPage = await this.findByUserIdAndMonth(userId, date, page, pageSize);
+      transactions.push(...(currentPage.transactions ?? []));
+    }
+
+    return transactions;
+  }
+
+  async getDashboardMonthlyData(userId: string, month: string) {
+    const [summary, fixedCosts, transactions, creditCard] = await Promise.all([
+      this.getAllBalance(userId, month),
+      this.fixedCostService.findByUserIdAndMonth(userId, month),
+      this.findAllTransactionsByUserIdAndMonth(userId, month),
+      this.getTopCreditCardsByMonth(userId, month).catch(() => ({ topCredcards: [] })),
+    ]);
+
+    return {
+      summary,
+      fixedCosts,
+      transactions,
+      creditCard,
+    };
+  }
+
+  async update(id: string, userId: string, data: Prisma.TransationUpdateInput) {
+    await this.getOwnedTransaction(id, userId);
+
     return this.prisma.transation.update({
       where: { id },
-      data,
+      data: {
+        ...data,
+        ...(data.Date ? { Date: this.normalizeDateInput(data.Date as string | Date) } : {}),
+      },
     });
   }
 
-  async delete(id: string) {
-    const transaction = await this.prisma.transation.findUnique({ where: { id } });
-    if (!transaction) {
-      throw new NotFoundException('Transação não encontrada.');
-    }
-  
-    if (transaction.paymentMethod === TransationPaymentMethod.CREDIT_CARD) {
-      await this.prisma.transation.deleteMany({
+  async updatePaymentStatus(
+    id: string,
+    userId: string,
+    data: UpdateTransationPaymentStatusDto,
+  ) {
+    const transaction = await this.getOwnedTransaction(id, userId);
+
+    const paidAt = data.paymentStatus === TransationPaymentStatus.PAID
+      ? (data.paidAt ? new Date(data.paidAt) : new Date())
+      : null;
+
+    return this.prisma.transation.update({
+      where: { id },
+      data: {
+        paymentStatus: data.paymentStatus,
+        paidAt,
+      },
+    });
+  }
+
+  async delete(id: string, userId: string) {
+    const transaction = await this.getOwnedTransaction(id, userId);
+
+    if (this.isInstallmentCreditCardTransaction(transaction)) {
+      const openInstallments = await this.findOpenInstallmentsToDelete(transaction);
+
+      if (openInstallments.length === 0) {
+        return { deletedCount: 0, preservedPaidCount: transaction.installments ?? 0 };
+      }
+
+      const deleted = await this.prisma.transation.deleteMany({
         where: {
-          createdAt: transaction.createdAt,
-          name: transaction.name,
+          id: {
+            in: openInstallments.map((installment) => installment.id),
+          },
         },
       });
-      return;
+
+      return {
+        deletedCount: deleted.count,
+        preservedPaidCount: Math.max((transaction.installments ?? 0) - deleted.count, 0),
+      };
     }
 
-    return this.prisma.transation.delete({ where: { id } });
+    const deletedTransaction = await this.prisma.transation.delete({ where: { id } });
+
+    return {
+      deletedCount: 1,
+      deletedTransactionId: deletedTransaction.id,
+      preservedPaidCount: 0,
+    };
   }
  
-  async findByNameCard(nameCard: string) {
+  async findByNameCard(userId: string, nameCard: string) {
     const card = await this.prisma.transation.findFirst({
       where: {
+        userId,
         paymentMethod: 'CREDIT_CARD',
         nameCard: {
           contains: nameCard.trim(),
@@ -187,14 +390,9 @@ export class TransationService {
   }
 
   async getTopCreditCardsByMonth(userId: string, date: string) {
-    if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
-      throw new Error('Invalid date format. Expected format: YYYY-MM-DD');
-    }
-  
-    const [year, month] = date.split('-');
-    const targetMonth = parseInt(month, 10) - 1;
-  
-    const startDate = new Date(Number(year), targetMonth, 1);
+    const { year, month } = this.parseYearMonthInput(date);
+
+    const startDate = new Date(year, month, 1);
     const endDate = new Date(startDate);
     endDate.setMonth(endDate.getMonth() + 1);
   
@@ -264,13 +462,7 @@ export class TransationService {
   };  
 
   async getAllBalance(userId: string, date: string) {
-    if (!date || (!/^\d{4}-\d{2}-\d{2}$/.test(date) && !/^\d{4}$/.test(date))) {
-      throw new Error('Invalid date format. Expected format: YYYY-MM-DD or YYYY');
-    }
-  
-    const isYear = /^\d{4}$/.test(date);
-    const year = isYear ? parseInt(date, 10) : parseInt(date.split('-')[0], 10);
-    const month = isYear ? 0 : parseInt(date.split('-')[1], 10) - 1;
+    const { year, month, isYear } = this.parseYearMonthInput(date, true);
   
     const startDate = new Date(year, month, 1);
     const endDate = new Date(year, isYear ? 12 : month + 1, 1);

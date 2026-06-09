@@ -23,6 +23,7 @@ model User {
   createdAt DateTime @default(now())
 
   cards  Card[]
+  fixedCosts FixedCost[]
 }
 
 model Transation {
@@ -32,8 +33,12 @@ model Transation {
   amount          Decimal                 @db.Decimal(10, 2)
   category        TransationCategory
   paymentMethod   TransationPaymentMethod
+  paymentStatus   TransationPaymentStatus @default(PENDING)
+  paidAt          DateTime?
+  isFixed         Boolean                 @default(false)
   installments    Int?      
   installmentInfo String?  
+  installmentGroupId String?
   nameCard        String?  
   cardId          String? 
   Date            DateTime
@@ -44,6 +49,7 @@ model Transation {
   /// Optional: Only used when `type` is `EXPENSE`. Must be `DEPOSIT` or `INVESTMENT`.
   withdrawal      TransationType?
   @@index([cardId])
+  @@index([installmentGroupId])
 }
 
 model Card {
@@ -54,10 +60,51 @@ model Card {
   invoicePayment  DateTime
 
   userId          String
-  user            User       @relation(fields: [userId], references: [id])
-  
+  user            User      @relation(fields: [userId], references: [id])
+
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
+}
+
+model FixedCost {
+  id             String               @id @default(cuid())
+  userId         String
+  name           String
+  defaultAmount  Decimal              @db.Decimal(10, 2)
+  recurrence     FixedCostRecurrence   @default(MONTHLY)
+  dueDay         Int
+  isActive       Boolean              @default(true)
+  createdAt      DateTime             @default(now())
+  updatedAt      DateTime             @updatedAt
+
+  user           User                 @relation(fields: [userId], references: [id])
+  monthlys       FixedCostMonthly[]
+
+  @@index([userId])
+}
+
+model FixedCostMonthly {
+  id           String                 @id @default(cuid())
+  fixedCostId  String
+  competence   String
+  status       FixedCostMonthlyStatus  @default(PENDING)
+  amount       Decimal                @db.Decimal(10, 2)
+  paidAt       DateTime?
+  createdAt    DateTime               @default(now())
+  updatedAt    DateTime               @updatedAt
+
+  fixedCost    FixedCost              @relation(fields: [fixedCostId], references: [id], onDelete: Cascade)
+
+  @@unique([fixedCostId, competence])
+  @@index([fixedCostId])
+  @@index([competence])
+}
+
+model Category {
+  id        String   @id @default(cuid())
+  name      String   @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 enum TransationType {
@@ -86,4 +133,21 @@ enum TransationPaymentMethod {
   CASH
   PIX
   OTHER
+}
+
+enum TransationPaymentStatus {
+  PENDING
+  PAID
+}
+
+enum FixedCostRecurrence {
+  MONTHLY
+  BIMONTHLY
+  QUARTERLY
+  YEARLY
+}
+
+enum FixedCostMonthlyStatus {
+  PENDING
+  PAID
 }

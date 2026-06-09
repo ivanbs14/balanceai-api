@@ -1,105 +1,229 @@
-<p align="center">
-  <a href="http://nestjs.com/" target="blank"><img src="https://nestjs.com/img/logo-small.svg" width="200" alt="Nest Logo" /></a>
-</p>
+# Balance API
 
-[circleci-image]: https://img.shields.io/circleci/build/github/nestjs/nest/master?token=abc123def456
-[circleci-url]: https://circleci.com/gh/nestjs/nest
+NestJS + Prisma API for the Balance application. The service handles users, cookie-based authentication, cards, transactions, and fixed costs on top of PostgreSQL.
 
-  <p align="center">A progressive <a href="http://nodejs.org" target="_blank">Node.js</a> framework for building efficient and scalable server-side applications.</p>
-    <p align="center">
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/v/@nestjs/core.svg" alt="NPM Version" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/l/@nestjs/core.svg" alt="Package License" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/dm/@nestjs/common.svg" alt="NPM Downloads" /></a>
-<a href="https://circleci.com/gh/nestjs/nest" target="_blank"><img src="https://img.shields.io/circleci/build/github/nestjs/nest/master" alt="CircleCI" /></a>
-<a href="https://coveralls.io/github/nestjs/nest?branch=master" target="_blank"><img src="https://coveralls.io/repos/github/nestjs/nest/badge.svg?branch=master#9" alt="Coverage" /></a>
-<a href="https://discord.gg/G7Qnnhy" target="_blank"><img src="https://img.shields.io/badge/discord-online-brightgreen.svg" alt="Discord"/></a>
-<a href="https://opencollective.com/nest#backer" target="_blank"><img src="https://opencollective.com/nest/backers/badge.svg" alt="Backers on Open Collective" /></a>
-<a href="https://opencollective.com/nest#sponsor" target="_blank"><img src="https://opencollective.com/nest/sponsors/badge.svg" alt="Sponsors on Open Collective" /></a>
-  <a href="https://paypal.me/kamilmysliwiec" target="_blank"><img src="https://img.shields.io/badge/Donate-PayPal-ff3f59.svg"/></a>
-    <a href="https://opencollective.com/nest#sponsor"  target="_blank"><img src="https://img.shields.io/badge/Support%20us-Open%20Collective-41B883.svg" alt="Support us"></a>
-  <a href="https://twitter.com/nestframework" target="_blank"><img src="https://img.shields.io/twitter/follow/nestframework.svg?style=social&label=Follow"></a>
-</p>
-  <!--[![Backers on Open Collective](https://opencollective.com/nest/backers/badge.svg)](https://opencollective.com/nest#backer)
-  [![Sponsors on Open Collective](https://opencollective.com/nest/sponsors/badge.svg)](https://opencollective.com/nest#sponsor)-->
+## Stack
 
-## Description
+- NestJS 10
+- Prisma
+- PostgreSQL
+- JWT authentication via HTTP-only cookie
+- TypeScript
 
-[Nest](https://github.com/nestjs/nest) framework TypeScript starter repository.
+## Main Modules
 
-## Document
+- `auth`: email/password login, Google OAuth, current session, logout
+- `user`: user CRUD
+- `card`: card CRUD and card transaction lookups
+- `transation`: transaction CRUD, monthly filters, card summaries
+- `fixed-cost`: fixed cost CRUD and monthly status updates
 
-(https://docs.google.com/document/d/17rePauq0_ZV_9Q0b4VyD2bokxDuFkM01_2yfYdHfq94/edit?tab=t.0#heading=h.sz7lo2na1m5b) documentation for the project.
-(https://docs.google.com/document/d/19CIUUAZKRo5f1jjcauN3FW-675eV44UdtVbwlP_uDok/edit?tab=t.0) documentation for the Heroku push.
+## Requirements
+
+- Node.js 18+ 
+- npm
+- PostgreSQL
+- A `.env` file with the required variables
+
+## Environment Variables
+
+Create `.env` in the project root with at least:
+
+```env
+DATABASE_URL="postgresql://USER:PASSWORD@HOST:PORT/DATABASE"
+JWT_SECRET="replace-me"
+
+# Optional but required if Google OAuth is enabled
+GOOGLE_CLIENT_ID=""
+GOOGLE_CLIENT_SECRET=""
+GOOGLE_REDIRECT_URI="http://localhost:4000/auth/google/callback"
+FRONTEND_URL="http://localhost:3000"
+
+# Optional
+PORT=4000
+NODE_ENV=development
+```
+
+Notes:
+
+- `DATABASE_URL` is required by Prisma.
+- `JWT_SECRET` is required by the `JwtModule`.
+- `FRONTEND_URL` is used as the redirect target after Google login.
+- Auth cookies are named `balance_auth`.
 
 ## Installation
 
 ```bash
-$ npm install
+npm install
 ```
 
-## Running the app
+If you are running through the local Codex shell proxy, use:
 
 ```bash
-# development
-$ npm run start
-
-# watch mode
-$ npm run start:dev
-
-# production mode
-$ npm run start:prod
+rtk npm install
 ```
 
-## Updated schema
+## Database Setup
+
+Apply migrations and generate the Prisma client:
 
 ```bash
-
-# prisma generate  
-$ npx prisma generate 
-
-# push table and database  
-$ npx prisma migrate dev --name add_new_table
-
-# (Optional) Regenerate Prisma types 
-$ npx prisma generate
-
+npx prisma migrate dev
+npx prisma generate
 ```
 
-## Test
+Seed categories and sample cards:
 
 ```bash
-# unit tests
-$ npm run test
-
-# e2e tests
-$ npm run test:e2e
-
-# test coverage
-$ npm run test:cov
+npm run db:seed
 ```
 
-## Implementaçoes e melhorias
+The seed creates:
+
+- default categories
+- a sample user: `seed@balance.local`
+- sample cards for that user
+
+## Running the API
+
 ```bash
-# add tables ou ajuste de db.
-$ npx prisma migrate dev --name add-card-relationship
+# development with watch mode
+npm run start:dev
 
-# atualizando PrismaCLient
-$ npx prisma generate
+# single run
+npm run start
 
-# rodar projeto
-$ npm run start
+# production build
+npm run build
+npm run start:prod
 ```
 
-## Support
+By default the API listens on `http://localhost:4000`.
 
-Nest is an MIT-licensed open source project. It can grow thanks to the sponsors and support by the amazing backers. If you'd like to join them, please [read more here](https://docs.nestjs.com/support).
+## CORS
 
-## Stay in touch
+The app currently allows credentials and these frontend origins:
 
-- Author - [Kamil Myśliwiec](https://kamilmysliwiec.com)
-- Website - [https://nestjs.com](https://nestjs.com/)
-- Twitter - [@nestframework](https://twitter.com/nestframework)
+- `http://localhost:3000`
+- `http://localhost:3001`
+- `https://balance-2olb8gbo5-ivan-barbosas-projects.vercel.app`
+- `https://balance-neon.vercel.app`
 
-## License
+## Available Scripts
 
-Nest is [MIT licensed](LICENSE).
+```bash
+npm run build
+npm run format
+npm run lint
+npm run test
+npm run test:e2e
+npm run test:cov
+npm run db:seed
+npm run db:import:bkpcsv
+npm run db:import:bkpcsv:dry
+npm run db:import:bkpcsv:repair-fixed
+```
+
+## Prisma Workflow
+
+When the schema changes:
+
+```bash
+npx prisma migrate dev --name describe_change
+npx prisma generate
+```
+
+Committed migrations live in [`prisma/migrations`](./prisma/migrations).
+
+## CSV Import
+
+The repository includes a CSV importer at [`prisma/import-bkpcsv.ts`](./prisma/import-bkpcsv.ts).
+
+Examples:
+
+```bash
+# validate import without writing to the database
+npm run db:import:bkpcsv:dry
+
+# execute import
+npm run db:import:bkpcsv
+
+# repair older imported transactions missing isFixed
+npm run db:import:bkpcsv:repair-fixed
+
+# target a specific user by email
+npm run db:import:bkpcsv -- --user-email=seed@balance.local
+
+# import a single year
+npm run db:import:bkpcsv -- --year=2026
+
+# custom CSV directory
+npm run db:import:bkpcsv -- --path=../dados/bkpcsv
+```
+
+## API Summary
+
+This is a route-level overview based on the current controllers.
+
+### Auth
+
+- `POST /auth`
+- `GET /auth/google`
+- `GET /auth/google/callback`
+- `GET /auth/me`
+- `POST /auth/logout`
+
+### Users
+
+- `POST /user`
+- `GET /user`
+- `GET /user/:id`
+- `PUT /user/:id`
+- `DELETE /user/:id`
+
+### Cards
+
+- `POST /cards`
+- `GET /cards`
+- `GET /cards/:userId`
+- `GET /cards/transation/:cardId?date=YYYY-MM-DD&page=1&pageSize=10`
+- `GET /cards/transations/:id`
+- `PATCH /cards/:id`
+- `DELETE /cards/:id`
+
+### Transations
+
+- `POST /transations`
+- `GET /transations`
+- `GET /transations/previous-date/:userId/:date`
+- `GET /transations/user/:userId/:month?page=1&pageSize=10`
+- `GET /transations/card/:userId/:date`
+- `GET /transations/card-names/:userId`
+- `GET /transations/find-card/:nameCard`
+- `GET /transations/:id`
+- `PUT /transations/:id`
+- `DELETE /transations/:id`
+
+### Fixed Costs
+
+- `POST /fixed-costs`
+- `GET /fixed-costs`
+- `GET /fixed-costs?userId=<id>`
+- `GET /fixed-costs?userId=<id>&month=YYYY-MM`
+- `GET /fixed-costs/:id`
+- `PATCH /fixed-costs/:id`
+- `PATCH /fixed-costs/:id/monthly/:competence`
+- `DELETE /fixed-costs/:id`
+
+## Tests
+
+```bash
+npm run test
+npm run test:e2e
+npm run test:cov
+```
+
+## Project References
+
+- Product documentation: https://docs.google.com/document/d/17rePauq0_ZV_9Q0b4VyD2bokxDuFkM01_2yfYdHfq94/edit?tab=t.0#heading=h.sz7lo2na1m5b
+- Heroku deployment notes: https://docs.google.com/document/d/19CIUUAZKRo5f1jjcauN3FW-675eV44UdtVbwlP_uDok/edit?tab=t.0

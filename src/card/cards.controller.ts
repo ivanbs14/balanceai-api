@@ -1,5 +1,5 @@
 /* eslint-disable prettier/prettier */
-import { Controller, Get, Post, Body, Patch, Param, Delete } from '@nestjs/common';
+import { Controller, Get, Post, Body, Patch, Param, Delete, Query } from '@nestjs/common';
 import { CreateCardDto } from './dto/create-card.dto';
 import { UpdateCardDto } from './dto/update-card.dto';
 import { CardService } from './card.service';
@@ -18,7 +18,7 @@ export class CardController {
     return this.cardService.findAll();
   };
 
-  @Get(':userId')
+  @Get('user/:userId')
   async findAllByUserId(@Param('userId') userId: string) {
     const cards = await this.cardService.findAllByUserId(userId);
     return { data: cards };
@@ -27,6 +27,21 @@ export class CardController {
   @Get(':id')
   findOne(@Param('id') id: string) {
     return this.cardService.findOne(id);
+  };
+
+  @Get('transation/:cardId')
+  async findTransationsByCard(
+    @Param('cardId') cardId: string,
+    @Query('date') date?: string,
+    @Query('page') page: number = 1,
+    @Query('pageSize') pageSize: number = 10,
+  ) {
+    return this.cardService.findTransationsByCard(
+      cardId,
+      date,
+      Number(page),
+      Number(pageSize),
+    );
   };
 
   @Get('transations/:id')

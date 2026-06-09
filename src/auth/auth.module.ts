@@ -3,6 +3,8 @@ import { JwtModule } from "@nestjs/jwt";
 import { AuthService } from "./auth.service";
 import { AuthController } from "./auth.controller";
 import { PrismaModule } from "src/prisma-services/prisma.module";
+import { UserModule } from "src/user/module";
+import { CookieAuthGuard } from "./cookie-auth.guard";
 
 @Module({
   imports: [
@@ -11,8 +13,10 @@ import { PrismaModule } from "src/prisma-services/prisma.module";
       signOptions: { expiresIn: "1h" },
     }),
     PrismaModule,
+    UserModule,
   ],
-  providers: [AuthService],
+  providers: [AuthService, CookieAuthGuard],
   controllers: [AuthController],
+  exports: [JwtModule, CookieAuthGuard],
 })
 export class AuthModule {}
