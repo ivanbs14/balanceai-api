@@ -102,6 +102,8 @@ npm run start:prod
 
 By default the API listens on `http://localhost:4000`.
 
+The compiled entrypoint is emitted at `dist/src/main.js`.
+
 ## Render Deployment
 
 The production build uses `tsc` directly, so it does not depend on the Nest CLI binary being present in the build environment.
