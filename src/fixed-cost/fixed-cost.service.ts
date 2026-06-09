@@ -2,7 +2,7 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { FixedCostMonthlyStatus, FixedCostRecurrence, Prisma } from '@prisma/client';
 import { addMonths } from 'date-fns';
-import { PrismaService } from 'src/prisma-services/prisma.service';
+import { PrismaService } from '../prisma-services/prisma.service';
 import { CreateFixedCostDto } from './dto/create-fixed-cost.dto';
 import { UpdateFixedCostDto } from './dto/update-fixed-cost.dto';
 import { UpdateFixedCostMonthlyDto } from './dto/update-fixed-cost-monthly.dto';

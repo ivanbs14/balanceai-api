@@ -2,7 +2,7 @@ import { Injectable, UnauthorizedException } from "@nestjs/common";
 import * as bcrypt from "bcrypt";
 import { randomBytes } from "crypto";
 import { JwtService } from "@nestjs/jwt";
-import { PrismaService } from "src/prisma-services/prisma.service";
+import { PrismaService } from "../prisma-services/prisma.service";
 import { AuthPayload, AuthUser } from "./auth.types";
 
 type GoogleTokenResponse = {

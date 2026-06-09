@@ -7,9 +7,9 @@ import {
   TransationType,
 } from '@prisma/client';
 import { randomUUID } from 'crypto';
-import { PrismaService } from 'src/prisma-services/prisma.service';
+import { PrismaService } from '../prisma-services/prisma.service';
 import { addMonths } from 'date-fns';
-import { FixedCostService } from 'src/fixed-cost/fixed-cost.service';
+import { FixedCostService } from '../fixed-cost/fixed-cost.service';
 import { UpdateTransationPaymentStatusDto } from './dto/update-transation-payment-status.dto';
 
 @Injectable()

@@ -15,7 +15,7 @@ import { LoginDto } from "./dto/login.dto";
 import { CookieAuthGuard, AUTH_COOKIE_NAME } from "./cookie-auth.guard";
 import { CurrentUser } from "./current-user.decorator";
 import { AuthPayload } from "./auth.types";
-import { UserService } from "src/user/service";
+import { UserService } from "../user/service";
 
 const GOOGLE_OAUTH_STATE_COOKIE = "balance_google_oauth_state";
 

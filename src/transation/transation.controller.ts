@@ -4,9 +4,9 @@ import { TransationService } from './transation.service';
 import { Prisma, TransationPaymentStatus } from '@prisma/client';
 import { CreateTransationDto } from './dto/create-transation.dto';
 import { UpdateTransationPaymentStatusDto } from './dto/update-transation-payment-status.dto';
-import { CookieAuthGuard } from 'src/auth/cookie-auth.guard';
-import { CurrentUser } from 'src/auth/current-user.decorator';
-import { AuthPayload } from 'src/auth/auth.types';
+import { CookieAuthGuard } from '../auth/cookie-auth.guard';
+import { CurrentUser } from '../auth/current-user.decorator';
+import { AuthPayload } from '../auth/auth.types';
 
 @Controller('transations')
 @UseGuards(CookieAuthGuard)

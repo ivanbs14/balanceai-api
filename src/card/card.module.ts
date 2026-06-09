@@ -1,6 +1,6 @@
 /* eslint-disable prettier/prettier */
 import { Module } from '@nestjs/common';
-import { PrismaModule } from 'src/prisma-services/prisma.module';
+import { PrismaModule } from '../prisma-services/prisma.module';
 import { CardService } from './card.service';
 import { CardController } from './cards.controller';
 /* import { PrismaService } from 'src/prisma-services/prisma.service'; */
