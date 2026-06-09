@@ -19,6 +19,14 @@ import { UserService } from "src/user/service";
 
 const GOOGLE_OAUTH_STATE_COOKIE = "balance_google_oauth_state";
 
+function getCookieSameSite() {
+  return process.env.NODE_ENV === "production" ? "None" : "Lax";
+}
+
+function shouldUseSecureCookie() {
+  return process.env.NODE_ENV === "production";
+}
+
 function readCookieValue(cookieHeader: string | undefined, cookieName: string) {
   if (!cookieHeader) {
     return undefined;
@@ -41,11 +49,11 @@ function buildAuthCookie(token: string) {
     `${AUTH_COOKIE_NAME}=${encodeURIComponent(token)}`,
     "HttpOnly",
     "Path=/",
-    "SameSite=Lax",
+    `SameSite=${getCookieSameSite()}`,
     "Max-Age=3600",
   ];
 
-  if (process.env.NODE_ENV === "production") {
+  if (shouldUseSecureCookie()) {
     cookieParts.push("Secure");
   }
 
@@ -57,11 +65,11 @@ function buildExpiredAuthCookie() {
     `${AUTH_COOKIE_NAME}=`,
     "HttpOnly",
     "Path=/",
-    "SameSite=Lax",
+    `SameSite=${getCookieSameSite()}`,
     "Max-Age=0",
   ];
 
-  if (process.env.NODE_ENV === "production") {
+  if (shouldUseSecureCookie()) {
     cookieParts.push("Secure");
   }
 
@@ -73,11 +81,11 @@ function buildOauthStateCookie(state: string) {
     `${GOOGLE_OAUTH_STATE_COOKIE}=${encodeURIComponent(state)}`,
     "HttpOnly",
     "Path=/",
-    "SameSite=Lax",
+    `SameSite=${getCookieSameSite()}`,
     "Max-Age=600",
   ];
 
-  if (process.env.NODE_ENV === "production") {
+  if (shouldUseSecureCookie()) {
     cookieParts.push("Secure");
   }
 
@@ -89,11 +97,11 @@ function buildExpiredOauthStateCookie() {
     `${GOOGLE_OAUTH_STATE_COOKIE}=`,
     "HttpOnly",
     "Path=/",
-    "SameSite=Lax",
+    `SameSite=${getCookieSameSite()}`,
     "Max-Age=0",
   ];
 
-  if (process.env.NODE_ENV === "production") {
+  if (shouldUseSecureCookie()) {
     cookieParts.push("Secure");
   }
 

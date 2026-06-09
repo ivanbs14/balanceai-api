@@ -38,6 +38,7 @@ GOOGLE_CLIENT_ID=""
 GOOGLE_CLIENT_SECRET=""
 GOOGLE_REDIRECT_URI="http://localhost:4000/auth/google/callback"
 FRONTEND_URL="http://localhost:3000"
+FRONTEND_URLS=""
 
 # Optional
 PORT=4000
@@ -49,6 +50,7 @@ Notes:
 - `DATABASE_URL` is required by Prisma.
 - `JWT_SECRET` is required by the `JwtModule`.
 - `FRONTEND_URL` is used as the redirect target after Google login.
+- `FRONTEND_URLS` can include extra origins (comma-separated) for CORS.
 - Auth cookies are named `balance_auth`.
 
 ## Installation
@@ -108,6 +110,8 @@ The app currently allows credentials and these frontend origins:
 - `http://localhost:3001`
 - `https://balance-2olb8gbo5-ivan-barbosas-projects.vercel.app`
 - `https://balance-neon.vercel.app`
+
+Additionally, origins from `FRONTEND_URL` and `FRONTEND_URLS` (comma-separated) are also allowed.
 
 ## Available Scripts
 
