@@ -113,7 +113,7 @@ Recommended Render settings:
 npm ci && npm run build
 
 # Start Command
-npm run start:prod
+npm start
 ```
 
 Keep `NODE_ENV=production` in runtime.
