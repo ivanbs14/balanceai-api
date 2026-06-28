@@ -371,6 +371,31 @@ export class TransationService {
     return card ? card.nameCard : null;
   };
 
+  async findOpenTransactionsByCard(userId: string, nameCard: string) {
+    const normalizedCardName = nameCard.trim();
+
+    if (!normalizedCardName) {
+      throw new BadRequestException('O nome do cartao e obrigatorio.');
+    }
+
+    return this.prisma.transation.findMany({
+      where: {
+        userId,
+        type: TransationType.EXPENSE,
+        paymentMethod: TransationPaymentMethod.CREDIT_CARD,
+        paymentStatus: TransationPaymentStatus.PENDING,
+        nameCard: {
+          equals: normalizedCardName,
+          mode: 'insensitive',
+        },
+      },
+      orderBy: [
+        { Date: 'asc' },
+        { createdAt: 'asc' },
+      ],
+    });
+  }
+
   async getUniqueCreditCardNames(userId: string): Promise<string[]> {
     const transactions = await this.prisma.transation.findMany({
       where: {

@@ -92,6 +92,14 @@ export class TransationController {
     return this.transationService.findByNameCard(user.userId, nameCard);
   }
 
+  @Get('open-by-card/:nameCard')
+  async findOpenTransactionsByCard(
+    @Param('nameCard') nameCard: string,
+    @CurrentUser() user: AuthPayload,
+  ) {
+    return this.transationService.findOpenTransactionsByCard(user.userId, nameCard);
+  }
+
   @Get(':id')
   async findOne(@Param('id') id: string, @CurrentUser() user: AuthPayload) {
     return this.transationService.findOne(id, user.userId);
