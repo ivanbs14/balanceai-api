@@ -18,6 +18,7 @@ import { AuthPayload } from "./auth.types";
 import { UserService } from "../user/service";
 
 const GOOGLE_OAUTH_STATE_COOKIE = "balance_google_oauth_state";
+const AUTH_COOKIE_MAX_AGE_SECONDS = 60 * 60 * 24 * 7;
 
 function getCookieSameSite() {
   return process.env.NODE_ENV === "production" ? "None" : "Lax";
@@ -50,7 +51,7 @@ function buildAuthCookie(token: string) {
     "HttpOnly",
     "Path=/",
     `SameSite=${getCookieSameSite()}`,
-    "Max-Age=3600",
+    `Max-Age=${AUTH_COOKIE_MAX_AGE_SECONDS}`,
   ];
 
   if (shouldUseSecureCookie()) {
