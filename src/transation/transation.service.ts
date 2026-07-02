@@ -10,6 +10,7 @@ import { randomUUID } from 'crypto';
 import { PrismaService } from '../prisma-services/prisma.service';
 import { addMonths } from 'date-fns';
 import { FixedCostService } from '../fixed-cost/fixed-cost.service';
+import { UpdateInstallmentGroupDto } from './dto/update-installment-group.dto';
 import { UpdateTransationPaymentStatusDto } from './dto/update-transation-payment-status.dto';
 import { UpdateTransationDto } from './dto/update-transation.dto';
 
@@ -88,6 +89,78 @@ export class TransationService {
 
   private isEditingProtectedFields(data: UpdateTransationDto) {
     return data.name !== undefined || data.amount !== undefined;
+  }
+
+  private getInstallmentSequence(transaction: {
+    installmentInfo?: string | null;
+    Date: Date;
+    createdAt?: Date;
+  }) {
+    const sequence = Number.parseInt(transaction.installmentInfo?.split('/')[0] ?? '', 10);
+
+    if (Number.isFinite(sequence) && sequence > 0) {
+      return sequence;
+    }
+
+    return Number.MAX_SAFE_INTEGER;
+  }
+
+  private async resolveInstallmentGroupCard(
+    paymentMethod: TransationPaymentMethod,
+    cardId?: string,
+  ) {
+    if (paymentMethod !== TransationPaymentMethod.CREDIT_CARD) {
+      return {
+        cardId: null,
+        nameCard: null,
+      };
+    }
+
+    if (!cardId) {
+      throw new BadRequestException('O cardId e obrigatorio para pagamentos com cartao de credito.');
+    }
+
+    const card = await this.prisma.card.findUnique({
+      where: { id: cardId },
+    });
+
+    if (!card) {
+      throw new BadRequestException('Cartão não encontrado para o cardId informado.');
+    }
+
+    return {
+      cardId,
+      nameCard: card.name,
+    };
+  }
+
+  private buildInstallmentGroupEntries(
+    baseTransaction: Prisma.TransationUncheckedCreateInput,
+    startDate: Date,
+    installments: number,
+    totalAmount: string,
+  ) {
+    const installmentAmount = Number(totalAmount) / installments;
+
+    return Array.from({ length: installments }, (_, index) => ({
+      ...baseTransaction,
+      amount: installmentAmount,
+      installments,
+      installmentInfo: `${index + 1}/${installments}`,
+      Date: addMonths(startDate, index),
+    }));
+  }
+
+  private async getInstallmentGroupTransaction(id: string, userId: string) {
+    const transaction = await this.getOwnedTransaction(id, userId);
+
+    if (!this.isInstallmentTransaction(transaction) || !transaction.installmentGroupId) {
+      throw new BadRequestException(
+        'A transacao informada nao pertence a um grupo parcelado editavel.',
+      );
+    }
+
+    return transaction;
   }
 
   private async findOpenInstallmentsToDelete(transaction: {
@@ -328,6 +401,119 @@ export class TransationService {
       data: {
         ...data,
       },
+    });
+  }
+
+  async updateInstallmentGroup(
+    id: string,
+    userId: string,
+    data: UpdateInstallmentGroupDto,
+  ) {
+    if (!this.supportsInstallments(data.paymentMethod)) {
+      throw new BadRequestException(
+        'O metodo de pagamento informado nao suporta edicao de grupo parcelado.',
+      );
+    }
+
+    const anchorTransaction = await this.getInstallmentGroupTransaction(id, userId);
+    const cardData = await this.resolveInstallmentGroupCard(data.paymentMethod, data.cardId);
+    const startDate = this.normalizeDateInput(data.Date);
+
+    return this.prisma.$transaction(async (tx) => {
+      const group = await tx.transation.findMany({
+        where: {
+          installmentGroupId: anchorTransaction.installmentGroupId,
+          userId,
+        },
+      });
+
+      if (group.length === 0) {
+        throw new NotFoundException('Grupo parcelado não encontrado.');
+      }
+
+      const orderedGroup = [...group].sort((left, right) => {
+        const leftSequence = this.getInstallmentSequence(left);
+        const rightSequence = this.getInstallmentSequence(right);
+
+        if (leftSequence !== rightSequence) {
+          return leftSequence - rightSequence;
+        }
+
+        return left.Date.getTime() - right.Date.getTime();
+      });
+
+      const baseTransaction: Prisma.TransationUncheckedCreateInput = {
+        userId,
+        name: data.name,
+        type: anchorTransaction.type,
+        amount: Number(data.amount) / data.installments,
+        category: anchorTransaction.category,
+        paymentMethod: data.paymentMethod,
+        paymentStatus: TransationPaymentStatus.PENDING,
+        paidAt: null,
+        isFixed: anchorTransaction.isFixed,
+        installments: data.installments,
+        installmentInfo: null,
+        installmentGroupId: anchorTransaction.installmentGroupId,
+        nameCard: cardData.nameCard,
+        cardId: cardData.cardId,
+        Date: startDate,
+        withdrawal: anchorTransaction.withdrawal,
+      };
+
+      const recalculatedEntries = this.buildInstallmentGroupEntries(
+        baseTransaction,
+        startDate,
+        data.installments,
+        data.amount,
+      );
+
+      const updates = orderedGroup
+        .slice(0, recalculatedEntries.length)
+        .map((transaction, index) =>
+          tx.transation.update({
+            where: { id: transaction.id },
+            data: {
+              name: recalculatedEntries[index].name,
+              amount: recalculatedEntries[index].amount,
+              Date: recalculatedEntries[index].Date,
+              installments: recalculatedEntries[index].installments,
+              installmentInfo: recalculatedEntries[index].installmentInfo,
+              paymentMethod: recalculatedEntries[index].paymentMethod,
+              cardId: recalculatedEntries[index].cardId,
+              nameCard: recalculatedEntries[index].nameCard,
+            },
+          }),
+        );
+
+      const creates = recalculatedEntries
+        .slice(orderedGroup.length)
+        .map((entry) =>
+          tx.transation.create({
+            data: entry,
+          }),
+        );
+
+      const trailingInstallments = orderedGroup.slice(recalculatedEntries.length);
+      if (trailingInstallments.length > 0) {
+        await tx.transation.deleteMany({
+          where: {
+            id: {
+              in: trailingInstallments.map((transaction) => transaction.id),
+            },
+          },
+        });
+      }
+
+      await Promise.all([...updates, ...creates]);
+
+      return tx.transation.findMany({
+        where: {
+          installmentGroupId: anchorTransaction.installmentGroupId,
+          userId,
+        },
+        orderBy: [{ Date: 'asc' }, { createdAt: 'asc' }],
+      });
     });
   }
 

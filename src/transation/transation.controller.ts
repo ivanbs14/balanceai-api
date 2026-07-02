@@ -4,6 +4,7 @@ import { TransationService } from './transation.service';
 import { TransationPaymentStatus } from '@prisma/client';
 import { CreateTransationDto } from './dto/create-transation.dto';
 import { UpdateTransationPaymentStatusDto } from './dto/update-transation-payment-status.dto';
+import { UpdateInstallmentGroupDto } from './dto/update-installment-group.dto';
 import { UpdateTransationDto } from './dto/update-transation.dto';
 import { CookieAuthGuard } from '../auth/cookie-auth.guard';
 import { CurrentUser } from '../auth/current-user.decorator';
@@ -113,6 +114,15 @@ export class TransationController {
     @CurrentUser() user: AuthPayload,
   ) {
     return this.transationService.update(id, user.userId, data);
+  }
+
+  @Patch(':id/installment-group')
+  async updateInstallmentGroup(
+    @Param('id') id: string,
+    @Body() data: UpdateInstallmentGroupDto,
+    @CurrentUser() user: AuthPayload,
+  ) {
+    return this.transationService.updateInstallmentGroup(id, user.userId, data);
   }
 
   @Delete(':id')
