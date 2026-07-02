@@ -54,7 +54,11 @@ export class CreateTransationDto {
   @IsBoolean()
   isFixed?: boolean;
 
-  @ValidateIf((o) => o.paymentMethod === TransationPaymentMethod.CREDIT_CARD)
+  @ValidateIf(
+    (o) =>
+      o.paymentMethod === TransationPaymentMethod.CREDIT_CARD ||
+      (o.paymentMethod === TransationPaymentMethod.PIX && o.installments !== undefined),
+  )
   @IsInt({ message: 'A quantidade de parcelas deve ser um número inteiro' })
   @Min(1, { message: 'A quantidade mínima de parcelas é 1' })
   installments?: number;

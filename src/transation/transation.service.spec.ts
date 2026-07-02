@@ -76,6 +76,77 @@ describe('TransationService', () => {
     });
   });
 
+  it('should create pix installments when installments is greater than one', async () => {
+    prismaMock.transation.create.mockImplementation(({ data }: any) =>
+      Promise.resolve({ id: `${data.installmentInfo}`, ...data }),
+    );
+
+    const result = await service.create({
+      userId: 'user-1',
+      name: 'Notebook',
+      type: 'EXPENSE',
+      amount: '900.00',
+      category: 'OTHER',
+      paymentMethod: TransationPaymentMethod.PIX,
+      installments: 3,
+      Date: '2026-07-02',
+      withdrawal: 'DEPOSIT',
+    } as any);
+
+    expect(Array.isArray(result)).toBe(true);
+    expect(prismaMock.transation.create).toHaveBeenCalledTimes(3);
+    expect(prismaMock.transation.create).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        data: expect.objectContaining({
+          paymentMethod: TransationPaymentMethod.PIX,
+          amount: 300,
+          installmentInfo: '1/3',
+        }),
+      }),
+    );
+  });
+
+  it('should keep single pix transaction when installments is one', async () => {
+    prismaMock.transation.create.mockResolvedValue({ id: 'tx-1' });
+
+    await service.create({
+      userId: 'user-1',
+      name: 'Curso',
+      type: 'EXPENSE',
+      amount: '120.00',
+      category: 'OTHER',
+      paymentMethod: TransationPaymentMethod.PIX,
+      installments: 1,
+      Date: '2026-07-02',
+      withdrawal: 'DEPOSIT',
+    } as any);
+
+    expect(prismaMock.transation.create).toHaveBeenCalledTimes(1);
+  });
+
+  it('should still require card lookup only for credit card', async () => {
+    prismaMock.card.findUnique.mockResolvedValue({ id: 'card-1', name: 'Nubank' });
+    prismaMock.transation.create.mockResolvedValue({ id: 'tx-card' });
+
+    await service.create({
+      userId: 'user-1',
+      name: 'Mesa',
+      type: 'EXPENSE',
+      amount: '300.00',
+      category: 'OTHER',
+      paymentMethod: TransationPaymentMethod.CREDIT_CARD,
+      installments: 1,
+      cardId: 'card-1',
+      Date: '2026-07-02',
+      withdrawal: 'DEPOSIT',
+    } as any);
+
+    expect(prismaMock.card.findUnique).toHaveBeenCalledWith({
+      where: { id: 'card-1' },
+    });
+  });
+
   it('should mark transaction as PAID and set paidAt when paidAt is not provided', async () => {
     prismaMock.transation.findUnique.mockResolvedValue({ id: 'tx-1', userId: 'user-1' });
     prismaMock.transation.update.mockResolvedValue({
@@ -227,6 +298,34 @@ describe('TransationService', () => {
           in: ['tx-20', 'tx-22'],
         },
       },
+    });
+  });
+
+  it('should delete only pending pix installments from the same group', async () => {
+    prismaMock.transation.findUnique.mockResolvedValue({
+      id: 'tx-pix-1',
+      userId: 'user-1',
+      name: 'Notebook',
+      amount: 300,
+      createdAt: new Date('2026-07-02T12:00:00.000Z'),
+      installments: 3,
+      installmentGroupId: 'pix-group-1',
+      paymentMethod: TransationPaymentMethod.PIX,
+    });
+    prismaMock.transation.findMany.mockResolvedValue([{ id: 'tx-pix-1' }, { id: 'tx-pix-2' }]);
+    prismaMock.transation.deleteMany.mockResolvedValue({ count: 2 });
+
+    await expect(service.delete('tx-pix-1', 'user-1')).resolves.toEqual({
+      deletedCount: 2,
+      preservedPaidCount: 1,
+    });
+
+    expect(prismaMock.transation.findMany).toHaveBeenCalledWith({
+      where: {
+        installmentGroupId: 'pix-group-1',
+        paymentStatus: TransationPaymentStatus.PENDING,
+      },
+      select: { id: true },
     });
   });
 

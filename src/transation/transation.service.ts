@@ -68,12 +68,19 @@ export class TransationService {
     );
   }
 
-  private isInstallmentCreditCardTransaction(transaction: {
+  private supportsInstallments(paymentMethod: TransationPaymentMethod) {
+    return (
+      paymentMethod === TransationPaymentMethod.CREDIT_CARD ||
+      paymentMethod === TransationPaymentMethod.PIX
+    );
+  }
+
+  private isInstallmentTransaction(transaction: {
     paymentMethod: TransationPaymentMethod;
     installments?: number | null;
   }) {
     return (
-      transaction.paymentMethod === TransationPaymentMethod.CREDIT_CARD &&
+      this.supportsInstallments(transaction.paymentMethod) &&
       Number(transaction.installments ?? 0) > 1
     );
   }
@@ -89,7 +96,7 @@ export class TransationService {
     installmentGroupId?: string | null;
     paymentMethod: TransationPaymentMethod;
   }) {
-    if (!this.isInstallmentCreditCardTransaction(transaction)) {
+    if (!this.isInstallmentTransaction(transaction)) {
       return [];
     }
 
@@ -110,7 +117,7 @@ export class TransationService {
     return this.prisma.transation.findMany({
       where: {
         userId: transaction.userId,
-        paymentMethod: TransationPaymentMethod.CREDIT_CARD,
+        paymentMethod: transaction.paymentMethod,
         name: transaction.name,
         cardId: transaction.cardId ?? null,
         amount: transaction.amount,
@@ -131,7 +138,17 @@ export class TransationService {
       (!data.installments || data.installments < 1)
     ) {
       throw new BadRequestException(
-        'A quantidade de parcelas é obrigatória e deve ser maior que 0 para pagamentos com cartão de crédito.'
+        'A quantidade de parcelas é obrigatória e deve ser maior que 0 para pagamentos com cartão de crédito.',
+      );
+    }
+
+    if (
+      data.paymentMethod === TransationPaymentMethod.PIX &&
+      data.installments !== undefined &&
+      data.installments < 1
+    ) {
+      throw new BadRequestException(
+        'A quantidade de parcelas deve ser maior que 0 para pagamentos parcelados no PIX.',
       );
     }
   
@@ -163,7 +180,7 @@ export class TransationService {
     const transactions = [];
     const normalizedDate = this.normalizeDateInput(data.Date as string | Date);
   
-    if (data.paymentMethod === TransationPaymentMethod.CREDIT_CARD && data.installments > 1) {
+    if (this.supportsInstallments(data.paymentMethod) && data.installments > 1) {
       const installmentValue = Number(data.amount) / data.installments;
       const startDate = normalizedDate;
       const installmentGroupId = randomUUID();
@@ -323,7 +340,7 @@ export class TransationService {
   async delete(id: string, userId: string) {
     const transaction = await this.getOwnedTransaction(id, userId);
 
-    if (this.isInstallmentCreditCardTransaction(transaction)) {
+    if (this.isInstallmentTransaction(transaction)) {
       const openInstallments = await this.findOpenInstallmentsToDelete(transaction);
 
       if (openInstallments.length === 0) {
