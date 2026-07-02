@@ -1,9 +1,10 @@
 /* eslint-disable prettier/prettier */
 import { Body, Controller, Delete, Get, Param, Patch, Post, Put, Query, UseGuards } from '@nestjs/common';
 import { TransationService } from './transation.service';
-import { Prisma, TransationPaymentStatus } from '@prisma/client';
+import { TransationPaymentStatus } from '@prisma/client';
 import { CreateTransationDto } from './dto/create-transation.dto';
 import { UpdateTransationPaymentStatusDto } from './dto/update-transation-payment-status.dto';
+import { UpdateTransationDto } from './dto/update-transation.dto';
 import { CookieAuthGuard } from '../auth/cookie-auth.guard';
 import { CurrentUser } from '../auth/current-user.decorator';
 import { AuthPayload } from '../auth/auth.types';
@@ -108,7 +109,7 @@ export class TransationController {
   @Put(':id')
   async update(
     @Param('id') id: string,
-    @Body() data: Prisma.TransationUpdateInput,
+    @Body() data: UpdateTransationDto,
     @CurrentUser() user: AuthPayload,
   ) {
     return this.transationService.update(id, user.userId, data);

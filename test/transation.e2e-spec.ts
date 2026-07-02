@@ -190,6 +190,24 @@ describe('TransationController (e2e)', () => {
     });
   });
 
+  it('PUT /transations/:id should reject editing a paid transaction', async () => {
+    prismaMock.transation.findUnique.mockResolvedValue({
+      id: 'tx-paid',
+      userId: 'user-1',
+      paymentMethod: TransationPaymentMethod.PIX,
+      paymentStatus: 'PAID',
+      installments: 1,
+    });
+
+    await request(app.getHttpServer())
+      .put('/transations/tx-paid')
+      .send({
+        name: 'Mercado',
+        amount: '100.00',
+      })
+      .expect(400);
+  });
+
   it('DELETE /transations/:id should delete only pending installments for credit card purchases', async () => {
     prismaMock.transation.findUnique.mockResolvedValue({
       id: 'tx-1',

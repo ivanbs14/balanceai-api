@@ -1,5 +1,5 @@
 /* eslint-disable prettier/prettier */
-import { NotFoundException } from '@nestjs/common';
+import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { TransationPaymentMethod, TransationPaymentStatus } from '@prisma/client';
 import { TransationService } from './transation.service';
 
@@ -243,6 +243,66 @@ describe('TransationService', () => {
         }),
       }),
     );
+  });
+
+  it('should update a non-installment pending transaction', async () => {
+    prismaMock.transation.findUnique.mockResolvedValue({
+      id: 'tx-edit-1',
+      userId: 'user-1',
+      paymentMethod: TransationPaymentMethod.PIX,
+      paymentStatus: TransationPaymentStatus.PENDING,
+      installments: 1,
+    });
+    prismaMock.transation.update.mockResolvedValue({
+      id: 'tx-edit-1',
+      name: 'Mercado',
+      amount: '120.00',
+    });
+
+    await service.update('tx-edit-1', 'user-1', {
+      name: 'Mercado',
+      amount: '120.00',
+    } as any);
+
+    expect(prismaMock.transation.update).toHaveBeenCalledWith({
+      where: { id: 'tx-edit-1' },
+      data: {
+        name: 'Mercado',
+        amount: '120.00',
+      },
+    });
+  });
+
+  it('should reject editing name or amount for paid transactions', async () => {
+    prismaMock.transation.findUnique.mockResolvedValue({
+      id: 'tx-edit-2',
+      userId: 'user-1',
+      paymentMethod: TransationPaymentMethod.PIX,
+      paymentStatus: TransationPaymentStatus.PAID,
+      installments: 1,
+    });
+
+    await expect(
+      service.update('tx-edit-2', 'user-1', {
+        name: 'Academia',
+      } as any),
+    ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('should reject editing name or amount for installment transactions', async () => {
+    prismaMock.transation.findUnique.mockResolvedValue({
+      id: 'tx-edit-3',
+      userId: 'user-1',
+      paymentMethod: TransationPaymentMethod.CREDIT_CARD,
+      paymentStatus: TransationPaymentStatus.PENDING,
+      installments: 3,
+    });
+
+    await expect(
+      service.update('tx-edit-3', 'user-1', {
+        amount: '200.00',
+      } as any),
+    ).rejects.toBeInstanceOf(BadRequestException);
   });
 
   it('should delete a non-installment transaction directly', async () => {

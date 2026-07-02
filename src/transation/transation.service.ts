@@ -11,6 +11,7 @@ import { PrismaService } from '../prisma-services/prisma.service';
 import { addMonths } from 'date-fns';
 import { FixedCostService } from '../fixed-cost/fixed-cost.service';
 import { UpdateTransationPaymentStatusDto } from './dto/update-transation-payment-status.dto';
+import { UpdateTransationDto } from './dto/update-transation.dto';
 
 @Injectable()
 export class TransationService {
@@ -83,6 +84,10 @@ export class TransationService {
       this.supportsInstallments(transaction.paymentMethod) &&
       Number(transaction.installments ?? 0) > 1
     );
+  }
+
+  private isEditingProtectedFields(data: UpdateTransationDto) {
+    return data.name !== undefined || data.amount !== undefined;
   }
 
   private async findOpenInstallmentsToDelete(transaction: {
@@ -305,14 +310,23 @@ export class TransationService {
     };
   }
 
-  async update(id: string, userId: string, data: Prisma.TransationUpdateInput) {
-    await this.getOwnedTransaction(id, userId);
+  async update(id: string, userId: string, data: UpdateTransationDto) {
+    const transaction = await this.getOwnedTransaction(id, userId);
+
+    if (
+      this.isEditingProtectedFields(data) &&
+      (this.isInstallmentTransaction(transaction) ||
+        transaction.paymentStatus === TransationPaymentStatus.PAID)
+    ) {
+      throw new BadRequestException(
+        'Nao e permitido editar nome ou valor de transacoes pagas ou parceladas.',
+      );
+    }
 
     return this.prisma.transation.update({
       where: { id },
       data: {
         ...data,
-        ...(data.Date ? { Date: this.normalizeDateInput(data.Date as string | Date) } : {}),
       },
     });
   }
