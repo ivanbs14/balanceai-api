@@ -588,7 +588,7 @@ export class TransationService {
     return card ? card.nameCard : null;
   };
 
-  async findOpenTransactionsByCard(userId: string, nameCard: string) {
+  async findTransactionsByCard(userId: string, nameCard: string) {
     const normalizedCardName = nameCard.trim();
 
     if (!normalizedCardName) {
@@ -600,7 +600,6 @@ export class TransationService {
         userId,
         type: TransationType.EXPENSE,
         paymentMethod: TransationPaymentMethod.CREDIT_CARD,
-        paymentStatus: TransationPaymentStatus.PENDING,
         nameCard: {
           equals: normalizedCardName,
           mode: 'insensitive',

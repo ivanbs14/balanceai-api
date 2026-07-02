@@ -727,21 +727,24 @@ describe('TransationService', () => {
     expect(prismaMock.transation.deleteMany).not.toHaveBeenCalled();
   });
 
-  it('should return open credit-card transactions for a selected card', async () => {
+  it('should return credit-card transactions for a selected card regardless of payment status', async () => {
     prismaMock.transation.findMany.mockResolvedValue([
-      { id: 'tx-open-1', nameCard: 'Nubank' },
+      { id: 'tx-paid-1', nameCard: 'Nubank', paymentStatus: TransationPaymentStatus.PAID },
+      { id: 'tx-pending-1', nameCard: 'Nubank', paymentStatus: TransationPaymentStatus.PENDING },
     ]);
 
     await expect(
-      service.findOpenTransactionsByCard('user-1', 'Nubank'),
-    ).resolves.toEqual([{ id: 'tx-open-1', nameCard: 'Nubank' }]);
+      service.findTransactionsByCard('user-1', 'Nubank'),
+    ).resolves.toEqual([
+      { id: 'tx-paid-1', nameCard: 'Nubank', paymentStatus: TransationPaymentStatus.PAID },
+      { id: 'tx-pending-1', nameCard: 'Nubank', paymentStatus: TransationPaymentStatus.PENDING },
+    ]);
 
     expect(prismaMock.transation.findMany).toHaveBeenCalledWith({
       where: {
         userId: 'user-1',
         type: 'EXPENSE',
         paymentMethod: TransationPaymentMethod.CREDIT_CARD,
-        paymentStatus: TransationPaymentStatus.PENDING,
         nameCard: {
           equals: 'Nubank',
           mode: 'insensitive',

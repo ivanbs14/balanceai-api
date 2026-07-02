@@ -95,11 +95,11 @@ export class TransationController {
   }
 
   @Get('open-by-card/:nameCard')
-  async findOpenTransactionsByCard(
+  async findTransactionsByCard(
     @Param('nameCard') nameCard: string,
     @CurrentUser() user: AuthPayload,
   ) {
-    return this.transationService.findOpenTransactionsByCard(user.userId, nameCard);
+    return this.transationService.findTransactionsByCard(user.userId, nameCard);
   }
 
   @Get(':id')
