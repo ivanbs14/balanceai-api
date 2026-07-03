@@ -123,10 +123,11 @@ describe('TransationController (e2e)', () => {
     );
   });
 
-  it('GET /transations/open-by-card/:nameCard should return card transactions regardless of payment status', async () => {
+  it('GET /transations/open-by-card/:nameCard should return only normalized pending card transactions', async () => {
     prismaMock.transation.findMany.mockResolvedValue([
-      { id: 'tx-paid', nameCard: 'Nubank', paymentStatus: 'PAID' },
       { id: 'tx-pending', nameCard: 'Nubank', paymentStatus: 'PENDING' },
+      { id: 'tx-pending-2', nameCard: ' nubank ', paymentStatus: 'PENDING' },
+      { id: 'tx-other', nameCard: 'Inter', paymentStatus: 'PENDING' },
     ]);
 
     await request(app.getHttpServer())
@@ -134,8 +135,8 @@ describe('TransationController (e2e)', () => {
       .expect(200)
       .expect((response) => {
         expect(response.body).toEqual([
-          { id: 'tx-paid', nameCard: 'Nubank', paymentStatus: 'PAID' },
           { id: 'tx-pending', nameCard: 'Nubank', paymentStatus: 'PENDING' },
+          { id: 'tx-pending-2', nameCard: ' nubank ', paymentStatus: 'PENDING' },
         ]);
       });
 
@@ -144,10 +145,7 @@ describe('TransationController (e2e)', () => {
         userId: 'user-1',
         type: 'EXPENSE',
         paymentMethod: TransationPaymentMethod.CREDIT_CARD,
-        nameCard: {
-          equals: 'Nubank',
-          mode: 'insensitive',
-        },
+        paymentStatus: 'PENDING',
       },
       orderBy: [{ Date: 'asc' }, { createdAt: 'asc' }],
     });

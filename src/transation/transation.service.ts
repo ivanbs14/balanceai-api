@@ -25,6 +25,16 @@ export class TransationService {
     return value instanceof Date ? value : new Date(value);
   }
 
+  private normalizeCardName(value: string | null | undefined) {
+    return (value ?? '').trim().replace(/\s+/g, ' ').toLowerCase();
+  }
+
+  private getCardDisplayName(value: string | null | undefined) {
+    const normalizedValue = (value ?? '').trim().replace(/\s+/g, ' ');
+
+    return normalizedValue || 'Cartao';
+  }
+
   private async getOwnedTransaction(id: string, userId: string) {
     const transaction = await this.prisma.transation.findUnique({ where: { id } });
 
@@ -595,22 +605,25 @@ export class TransationService {
       throw new BadRequestException('O nome do cartao e obrigatorio.');
     }
 
-    return this.prisma.transation.findMany({
+    const transactions = await this.prisma.transation.findMany({
       where: {
         userId,
         type: TransationType.EXPENSE,
         paymentMethod: TransationPaymentMethod.CREDIT_CARD,
         paymentStatus: TransationPaymentStatus.PENDING,
-        nameCard: {
-          equals: normalizedCardName,
-          mode: 'insensitive',
-        },
       },
       orderBy: [
         { Date: 'asc' },
         { createdAt: 'asc' },
       ],
     });
+
+    const normalizedRequestedCardName = this.normalizeCardName(normalizedCardName);
+
+    return transactions.filter(
+      (transaction) =>
+        this.normalizeCardName(transaction.nameCard) === normalizedRequestedCardName,
+    );
   }
 
   async getUniqueCreditCardNames(userId: string): Promise<string[]> {
@@ -637,71 +650,58 @@ export class TransationService {
     const startDate = new Date(year, month, 1);
     const endDate = new Date(startDate);
     endDate.setMonth(endDate.getMonth() + 1);
-  
-    const creditCardAggregates = await this.prisma.transation.groupBy({
-      by: ['nameCard'],
-      _sum: { amount: true },
+
+    const transactions = await this.prisma.transation.findMany({
       where: {
         userId,
-        type: 'EXPENSE',
-        paymentMethod: 'CREDIT_CARD',
+        type: TransationType.EXPENSE,
+        paymentMethod: TransationPaymentMethod.CREDIT_CARD,
         paymentStatus: TransationPaymentStatus.PENDING,
       },
+      orderBy: [
+        { Date: 'asc' },
+        { createdAt: 'asc' },
+      ],
     });
-  
-    const cardTotals = new Map<string, number>();
-  
-    for (const aggregate of creditCardAggregates) {
-      const totalPending = Number(aggregate._sum.amount) || 0;
-      cardTotals.set(
-        aggregate.nameCard,
-        (cardTotals.get(aggregate.nameCard) || 0) + totalPending
-      );
-    }
-  
-    const topCreditCards = await Promise.all(
-      Array.from(cardTotals.entries()).map(async ([nameCard, totalPending]) => {
-        const totalValueMonth = await this.prisma.transation.aggregate({
-          _sum: { amount: true },
-          where: {
-            userId,
-            type: 'EXPENSE',
-            paymentMethod: 'CREDIT_CARD',
-            paymentStatus: TransationPaymentStatus.PENDING,
-            nameCard,
-            Date: { gte: startDate, lt: endDate },
-          },
-        });
 
-        const totalValueMonthParcelado = await this.prisma.transation.aggregate({
-          _sum: { amount: true },
-          where: {
-            userId,
-            type: 'EXPENSE',
-            paymentMethod: 'CREDIT_CARD',
-            paymentStatus: TransationPaymentStatus.PENDING,
-            nameCard,
-            Date: { gte: startDate, lt: endDate },
-            installments: { gt: 0 },
-          },
-        });
-  
-        const totalMonth = Number(totalValueMonth._sum.amount) || 0;
-        const totalParceladoMonth = Number(totalValueMonthParcelado._sum.amount) || 0;
-  
-        return {
-          card: nameCard,
-          valorTotalMes: totalMonth,
-          valorTotalTodosMesesRestantes: totalPending,
-          valorParceladoMes: totalParceladoMonth,
-        };
-      })
-    );
-  
-    const sortedTopCreditCards = topCreditCards.sort(
+    const groupedCards = new Map<
+      string,
+      {
+        card: string;
+        valorTotalMes: number;
+        valorTotalTodosMesesRestantes: number;
+        valorParceladoMes: number;
+      }
+    >();
+
+    for (const transaction of transactions) {
+      const normalizedName = this.normalizeCardName(transaction.nameCard);
+      const groupKey = normalizedName || 'cartao';
+      const amount = Number(transaction.amount) || 0;
+      const existingGroup = groupedCards.get(groupKey) ?? {
+        card: this.getCardDisplayName(transaction.nameCard),
+        valorTotalMes: 0,
+        valorTotalTodosMesesRestantes: 0,
+        valorParceladoMes: 0,
+      };
+
+      existingGroup.valorTotalTodosMesesRestantes += amount;
+
+      if (transaction.Date >= startDate && transaction.Date < endDate) {
+        existingGroup.valorTotalMes += amount;
+
+        if (Number(transaction.installments ?? 0) > 1) {
+          existingGroup.valorParceladoMes += amount;
+        }
+      }
+
+      groupedCards.set(groupKey, existingGroup);
+    }
+
+    const sortedTopCreditCards = Array.from(groupedCards.values()).sort(
       (a, b) => b.valorTotalTodosMesesRestantes - a.valorTotalTodosMesesRestantes,
     );
-  
+
     return { topCredcards: sortedTopCreditCards };
   };  
 
