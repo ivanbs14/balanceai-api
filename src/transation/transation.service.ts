@@ -35,6 +35,10 @@ export class TransationService {
     return normalizedValue || 'Cartao';
   }
 
+  private getMonthIdFromDate(value: Date) {
+    return value.toISOString().slice(0, 7);
+  }
+
   private async getOwnedTransaction(id: string, userId: string) {
     const transaction = await this.prisma.transation.findUnique({ where: { id } });
 
@@ -646,10 +650,7 @@ export class TransationService {
 
   async getTopCreditCardsByMonth(userId: string, date: string) {
     const { year, month } = this.parseYearMonthInput(date);
-
-    const startDate = new Date(year, month, 1);
-    const endDate = new Date(startDate);
-    endDate.setMonth(endDate.getMonth() + 1);
+    const selectedMonthId = `${year}-${`${month + 1}`.padStart(2, '0')}`;
 
     const transactions = await this.prisma.transation.findMany({
       where: {
@@ -687,7 +688,7 @@ export class TransationService {
 
       existingGroup.valorTotalTodosMesesRestantes += amount;
 
-      if (transaction.Date >= startDate && transaction.Date < endDate) {
+      if (this.getMonthIdFromDate(transaction.Date) === selectedMonthId) {
         existingGroup.valorTotalMes += amount;
 
         if (Number(transaction.installments ?? 0) > 1) {
