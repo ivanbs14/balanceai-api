@@ -600,6 +600,7 @@ export class TransationService {
         userId,
         type: TransationType.EXPENSE,
         paymentMethod: TransationPaymentMethod.CREDIT_CARD,
+        paymentStatus: TransationPaymentStatus.PENDING,
         nameCard: {
           equals: normalizedCardName,
           mode: 'insensitive',
@@ -645,6 +646,7 @@ export class TransationService {
         type: 'EXPENSE',
         Date: { gte: startDate, lt: endDate },
         paymentMethod: 'CREDIT_CARD',
+        paymentStatus: TransationPaymentStatus.PENDING,
       },
     });
   
@@ -666,6 +668,7 @@ export class TransationService {
             userId,
             type: 'EXPENSE',
             paymentMethod: 'CREDIT_CARD',
+            paymentStatus: TransationPaymentStatus.PENDING,
             nameCard,
             Date: { gte: startDate, lt: endDate },
             installments: { gt: 0 },
@@ -673,23 +676,23 @@ export class TransationService {
         });
   
         const totalParceladoMonth = Number(totalValueMonthParcelado._sum.amount) || 0;
-        const totalValueRemainingMonths = await this.prisma.transation.aggregate({
+        const totalValuePending = await this.prisma.transation.aggregate({
           _sum: { amount: true },
           where: {
             userId,
             type: 'EXPENSE',
             paymentMethod: 'CREDIT_CARD',
+            paymentStatus: TransationPaymentStatus.PENDING,
             nameCard,
-            Date: { gte: endDate },
           },
         });
   
-        const totalRemaining = Number(totalValueRemainingMonths._sum.amount) || 0;
+        const totalPending = Number(totalValuePending._sum.amount) || 0;
   
         return {
           card: nameCard,
           valorTotalMes: totalValueMonth,
-          valorTotalTodosMesesRestantes: totalRemaining,
+          valorTotalTodosMesesRestantes: totalPending,
           valorParceladoMes: totalParceladoMonth,
         };
       })

@@ -15,6 +15,8 @@ describe('TransationService', () => {
       delete: jest.fn(),
       create: jest.fn(),
       findFirst: jest.fn(),
+      groupBy: jest.fn(),
+      aggregate: jest.fn(),
     },
     card: {
       findUnique: jest.fn(),
@@ -727,16 +729,14 @@ describe('TransationService', () => {
     expect(prismaMock.transation.deleteMany).not.toHaveBeenCalled();
   });
 
-  it('should return credit-card transactions for a selected card regardless of payment status', async () => {
+  it('should return only pending credit-card transactions for a selected card', async () => {
     prismaMock.transation.findMany.mockResolvedValue([
-      { id: 'tx-paid-1', nameCard: 'Nubank', paymentStatus: TransationPaymentStatus.PAID },
       { id: 'tx-pending-1', nameCard: 'Nubank', paymentStatus: TransationPaymentStatus.PENDING },
     ]);
 
     await expect(
       service.findTransactionsByCard('user-1', 'Nubank'),
     ).resolves.toEqual([
-      { id: 'tx-paid-1', nameCard: 'Nubank', paymentStatus: TransationPaymentStatus.PAID },
       { id: 'tx-pending-1', nameCard: 'Nubank', paymentStatus: TransationPaymentStatus.PENDING },
     ]);
 
@@ -745,6 +745,7 @@ describe('TransationService', () => {
         userId: 'user-1',
         type: 'EXPENSE',
         paymentMethod: TransationPaymentMethod.CREDIT_CARD,
+        paymentStatus: TransationPaymentStatus.PENDING,
         nameCard: {
           equals: 'Nubank',
           mode: 'insensitive',
@@ -752,5 +753,75 @@ describe('TransationService', () => {
       },
       orderBy: [{ Date: 'asc' }, { createdAt: 'asc' }],
     });
+  });
+
+  it('should aggregate credit-card card spending using pending totals only', async () => {
+    prismaMock.transation.groupBy.mockResolvedValue([
+      {
+        nameCard: 'Nubank',
+        _sum: { amount: 120 },
+      },
+      {
+        nameCard: 'Inter',
+        _sum: { amount: 80 },
+      },
+    ]);
+    prismaMock.transation.aggregate.mockImplementation(({ where }: any) => {
+      if (where.nameCard === 'Nubank' && where.installments) {
+        return Promise.resolve({ _sum: { amount: 50 } });
+      }
+
+      if (where.nameCard === 'Nubank') {
+        return Promise.resolve({ _sum: { amount: 300 } });
+      }
+
+      if (where.nameCard === 'Inter' && where.installments) {
+        return Promise.resolve({ _sum: { amount: 0 } });
+      }
+
+      return Promise.resolve({ _sum: { amount: 80 } });
+    });
+
+    await expect(
+      service.getTopCreditCardsByMonth('user-1', '2026-07'),
+    ).resolves.toEqual({
+      topCredcards: [
+        {
+          card: 'Nubank',
+          valorTotalMes: 120,
+          valorTotalTodosMesesRestantes: 300,
+          valorParceladoMes: 50,
+        },
+        {
+          card: 'Inter',
+          valorTotalMes: 80,
+          valorTotalTodosMesesRestantes: 80,
+          valorParceladoMes: 0,
+        },
+      ],
+    });
+
+    expect(prismaMock.transation.groupBy).toHaveBeenCalledWith({
+      by: ['nameCard'],
+      _sum: { amount: true },
+      where: expect.objectContaining({
+        userId: 'user-1',
+        type: 'EXPENSE',
+        paymentMethod: 'CREDIT_CARD',
+        paymentStatus: TransationPaymentStatus.PENDING,
+      }),
+    });
+    expect(prismaMock.transation.aggregate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        _sum: { amount: true },
+        where: expect.objectContaining({
+          userId: 'user-1',
+          type: 'EXPENSE',
+          paymentMethod: 'CREDIT_CARD',
+          paymentStatus: TransationPaymentStatus.PENDING,
+          nameCard: 'Nubank',
+        }),
+      }),
+    );
   });
 });
