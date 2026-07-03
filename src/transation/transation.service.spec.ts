@@ -729,18 +729,18 @@ describe('TransationService', () => {
     expect(prismaMock.transation.deleteMany).not.toHaveBeenCalled();
   });
 
-  it('should return only pending credit-card transactions for a selected card', async () => {
+  it('should return all credit-card transactions for a selected card', async () => {
     prismaMock.transation.findMany.mockResolvedValue([
       { id: 'tx-pending-1', nameCard: 'Nubank', paymentStatus: TransationPaymentStatus.PENDING },
-      { id: 'tx-pending-2', nameCard: '  nubank  ', paymentStatus: TransationPaymentStatus.PENDING },
-      { id: 'tx-pending-3', nameCard: 'Inter', paymentStatus: TransationPaymentStatus.PENDING },
+      { id: 'tx-paid-1', nameCard: '  nubank  ', paymentStatus: TransationPaymentStatus.PAID },
+      { id: 'tx-pending-2', nameCard: 'Inter', paymentStatus: TransationPaymentStatus.PENDING },
     ]);
 
     await expect(
       service.findTransactionsByCard('user-1', 'Nubank'),
     ).resolves.toEqual([
       { id: 'tx-pending-1', nameCard: 'Nubank', paymentStatus: TransationPaymentStatus.PENDING },
-      { id: 'tx-pending-2', nameCard: '  nubank  ', paymentStatus: TransationPaymentStatus.PENDING },
+      { id: 'tx-paid-1', nameCard: '  nubank  ', paymentStatus: TransationPaymentStatus.PAID },
     ]);
 
     expect(prismaMock.transation.findMany).toHaveBeenCalledWith({
@@ -748,7 +748,6 @@ describe('TransationService', () => {
         userId: 'user-1',
         type: 'EXPENSE',
         paymentMethod: TransationPaymentMethod.CREDIT_CARD,
-        paymentStatus: TransationPaymentStatus.PENDING,
       },
       orderBy: [{ Date: 'asc' }, { createdAt: 'asc' }],
     });

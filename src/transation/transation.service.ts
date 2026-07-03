@@ -614,7 +614,6 @@ export class TransationService {
         userId,
         type: TransationType.EXPENSE,
         paymentMethod: TransationPaymentMethod.CREDIT_CARD,
-        paymentStatus: TransationPaymentStatus.PENDING,
       },
       orderBy: [
         { Date: 'asc' },
