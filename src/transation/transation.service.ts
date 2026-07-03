@@ -656,7 +656,6 @@ export class TransationService {
         userId,
         type: TransationType.EXPENSE,
         paymentMethod: TransationPaymentMethod.CREDIT_CARD,
-        paymentStatus: TransationPaymentStatus.PENDING,
       },
       orderBy: [
         { Date: 'asc' },
@@ -678,6 +677,9 @@ export class TransationService {
       const normalizedName = this.normalizeCardName(transaction.nameCard);
       const groupKey = normalizedName || 'cartao';
       const amount = Number(transaction.amount) || 0;
+      const isPending = transaction.paymentStatus === TransationPaymentStatus.PENDING;
+      const isInSelectedMonth = this.getMonthIdFromDate(transaction.Date) === selectedMonthId;
+
       const existingGroup = groupedCards.get(groupKey) ?? {
         card: this.getCardDisplayName(transaction.nameCard),
         valorTotalMes: 0,
@@ -685,9 +687,13 @@ export class TransationService {
         valorParceladoMes: 0,
       };
 
-      existingGroup.valorTotalTodosMesesRestantes += amount;
+      // valorTotalTodosMesesRestantes: apenas pendentes de qualquer mês
+      if (isPending) {
+        existingGroup.valorTotalTodosMesesRestantes += amount;
+      }
 
-      if (this.getMonthIdFromDate(transaction.Date) === selectedMonthId) {
+      // valorTotalMes: todas as transações do mês selecionado (pagas + pendentes)
+      if (isInSelectedMonth) {
         existingGroup.valorTotalMes += amount;
 
         if (Number(transaction.installments ?? 0) > 1) {
@@ -698,9 +704,9 @@ export class TransationService {
       groupedCards.set(groupKey, existingGroup);
     }
 
-    const sortedTopCreditCards = Array.from(groupedCards.values()).sort(
-      (a, b) => b.valorTotalTodosMesesRestantes - a.valorTotalTodosMesesRestantes,
-    );
+    const sortedTopCreditCards = Array.from(groupedCards.values())
+      .filter((card) => card.valorTotalMes > 0 || card.valorTotalTodosMesesRestantes > 0)
+      .sort((a, b) => b.valorTotalTodosMesesRestantes - a.valorTotalTodosMesesRestantes);
 
     return { topCredcards: sortedTopCreditCards };
   };  

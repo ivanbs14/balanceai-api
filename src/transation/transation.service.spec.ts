@@ -753,13 +753,14 @@ describe('TransationService', () => {
     });
   });
 
-  it('should aggregate credit-card card spending using pending totals only', async () => {
+  it('should aggregate credit-card spending with paid and pending transactions', async () => {
     prismaMock.transation.findMany.mockResolvedValue([
       {
         id: 'tx-1',
         nameCard: 'Nubank',
         amount: 70,
         installments: 1,
+        paymentStatus: TransationPaymentStatus.PAID,
         Date: new Date('2026-07-05T00:00:00.000Z'),
       },
       {
@@ -767,6 +768,7 @@ describe('TransationService', () => {
         nameCard: 'Nubank',
         amount: 50,
         installments: 3,
+        paymentStatus: TransationPaymentStatus.PENDING,
         Date: new Date('2026-07-01T00:00:00.000Z'),
       },
       {
@@ -774,6 +776,7 @@ describe('TransationService', () => {
         nameCard: ' nubank ',
         amount: 180,
         installments: 3,
+        paymentStatus: TransationPaymentStatus.PENDING,
         Date: new Date('2026-08-05T00:00:00.000Z'),
       },
       {
@@ -781,7 +784,16 @@ describe('TransationService', () => {
         nameCard: 'Inter',
         amount: 80,
         installments: 0,
+        paymentStatus: TransationPaymentStatus.PENDING,
         Date: new Date('2026-08-10T00:00:00.000Z'),
+      },
+      {
+        id: 'tx-5',
+        nameCard: 'C6',
+        amount: 100,
+        installments: 1,
+        paymentStatus: TransationPaymentStatus.PAID,
+        Date: new Date('2026-07-15T00:00:00.000Z'),
       },
     ]);
 
@@ -791,26 +803,31 @@ describe('TransationService', () => {
       topCredcards: [
         {
           card: 'Nubank',
-          valorTotalMes: 120,
-          valorTotalTodosMesesRestantes: 300,
+          valorTotalMes: 120, // 70 (pago) + 50 (pendente) do mês 07
+          valorTotalTodosMesesRestantes: 230, // 50 (07) + 180 (08) pendentes
           valorParceladoMes: 50,
         },
         {
           card: 'Inter',
-          valorTotalMes: 0,
-          valorTotalTodosMesesRestantes: 80,
+          valorTotalMes: 0, // nenhuma em 07
+          valorTotalTodosMesesRestantes: 80, // 80 (pendente) em 08
+          valorParceladoMes: 0,
+        },
+        {
+          card: 'C6',
+          valorTotalMes: 100, // 100 (pago) do mês 07
+          valorTotalTodosMesesRestantes: 0, // nenhuma pendente
           valorParceladoMes: 0,
         },
       ],
     });
 
     expect(prismaMock.transation.findMany).toHaveBeenCalledWith({
-      where: expect.objectContaining({
+      where: {
         userId: 'user-1',
         type: 'EXPENSE',
         paymentMethod: TransationPaymentMethod.CREDIT_CARD,
-        paymentStatus: TransationPaymentStatus.PENDING,
-      }),
+      },
       orderBy: [{ Date: 'asc' }, { createdAt: 'asc' }],
     });
   });
