@@ -6,9 +6,10 @@ import { UserModule } from "./user/module";
 import { AuthModule } from "./auth/auth.module";
 import { CardModule } from "./card/card.module";
 import { FixedCostModule } from "./fixed-cost/fixed-cost.module";
+import { AIFeedbackModule } from "./ai-feedback/ai-feedback.module";
 
 @Module({
-  imports: [TransationModule, UserModule, AuthModule, CardModule, FixedCostModule],
+  imports: [TransationModule, UserModule, AuthModule, CardModule, FixedCostModule, AIFeedbackModule],
   controllers: [AppController],
   providers: [AppService],
 })

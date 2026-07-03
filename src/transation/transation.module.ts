@@ -10,5 +10,6 @@ import { FixedCostModule } from '../fixed-cost/fixed-cost.module';
   imports: [PrismaModule, FixedCostModule, AuthModule],
   controllers: [TransationController],
   providers: [TransationService],
+  exports: [TransationService],
 })
 export class TransationModule {}

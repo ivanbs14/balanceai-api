@@ -24,6 +24,7 @@
     "db:import:bkpcsv:repair-fixed": "ts-node prisma/import-bkpcsv.ts --repair-fixed"
   },
   "dependencies": {
+    "@google/generative-ai": "^0.24.1",
     "@nestjs/common": "^10.0.0",
     "@nestjs/core": "^10.0.0",
     "@nestjs/jwt": "^11.0.0",

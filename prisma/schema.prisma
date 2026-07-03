@@ -100,6 +100,25 @@ model FixedCostMonthly {
   @@index([competence])
 }
 
+model AIFeedback {
+  id              String   @id @default(cuid())
+  userId          String
+  competence      String   // Format: YYYY-MM
+  totalIncome     Decimal  @db.Decimal(10, 2)
+  totalExpense    Decimal  @db.Decimal(10, 2)
+  totalInvestment Decimal  @db.Decimal(10, 2)
+  topCategory     String?
+  topCategoryValue Decimal? @db.Decimal(10, 2)
+  analysis        String   @db.Text
+  model           String   // AI model used (e.g., "gemini-1.5-flash")
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@unique([userId, competence])
+  @@index([userId])
+  @@index([competence])
+}
+
 model Category {
   id        String   @id @default(cuid())
   name      String   @unique
