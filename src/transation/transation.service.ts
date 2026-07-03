@@ -644,7 +644,6 @@ export class TransationService {
       where: {
         userId,
         type: 'EXPENSE',
-        Date: { gte: startDate, lt: endDate },
         paymentMethod: 'CREDIT_CARD',
         paymentStatus: TransationPaymentStatus.PENDING,
       },
@@ -653,15 +652,27 @@ export class TransationService {
     const cardTotals = new Map<string, number>();
   
     for (const aggregate of creditCardAggregates) {
-      const totalValueMonth = Number(aggregate._sum.amount) || 0;
+      const totalPending = Number(aggregate._sum.amount) || 0;
       cardTotals.set(
         aggregate.nameCard,
-        (cardTotals.get(aggregate.nameCard) || 0) + totalValueMonth
+        (cardTotals.get(aggregate.nameCard) || 0) + totalPending
       );
     }
   
     const topCreditCards = await Promise.all(
-      Array.from(cardTotals.entries()).map(async ([nameCard, totalValueMonth]) => {
+      Array.from(cardTotals.entries()).map(async ([nameCard, totalPending]) => {
+        const totalValueMonth = await this.prisma.transation.aggregate({
+          _sum: { amount: true },
+          where: {
+            userId,
+            type: 'EXPENSE',
+            paymentMethod: 'CREDIT_CARD',
+            paymentStatus: TransationPaymentStatus.PENDING,
+            nameCard,
+            Date: { gte: startDate, lt: endDate },
+          },
+        });
+
         const totalValueMonthParcelado = await this.prisma.transation.aggregate({
           _sum: { amount: true },
           where: {
@@ -675,34 +686,23 @@ export class TransationService {
           },
         });
   
+        const totalMonth = Number(totalValueMonth._sum.amount) || 0;
         const totalParceladoMonth = Number(totalValueMonthParcelado._sum.amount) || 0;
-        const totalValuePending = await this.prisma.transation.aggregate({
-          _sum: { amount: true },
-          where: {
-            userId,
-            type: 'EXPENSE',
-            paymentMethod: 'CREDIT_CARD',
-            paymentStatus: TransationPaymentStatus.PENDING,
-            nameCard,
-          },
-        });
-  
-        const totalPending = Number(totalValuePending._sum.amount) || 0;
   
         return {
           card: nameCard,
-          valorTotalMes: totalValueMonth,
+          valorTotalMes: totalMonth,
           valorTotalTodosMesesRestantes: totalPending,
           valorParceladoMes: totalParceladoMonth,
         };
       })
     );
   
-    const limitedTopCreditCards = topCreditCards
-      .sort((a, b) => b.valorTotalMes - a.valorTotalMes)
-      .slice(0, 5);
+    const sortedTopCreditCards = topCreditCards.sort(
+      (a, b) => b.valorTotalTodosMesesRestantes - a.valorTotalTodosMesesRestantes,
+    );
   
-    return { topCredcards: limitedTopCreditCards };
+    return { topCredcards: sortedTopCreditCards };
   };  
 
   async getAllBalance(userId: string, date: string) {

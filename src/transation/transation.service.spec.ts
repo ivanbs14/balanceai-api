@@ -759,7 +759,7 @@ describe('TransationService', () => {
     prismaMock.transation.groupBy.mockResolvedValue([
       {
         nameCard: 'Nubank',
-        _sum: { amount: 120 },
+        _sum: { amount: 300 },
       },
       {
         nameCard: 'Inter',
@@ -767,19 +767,23 @@ describe('TransationService', () => {
       },
     ]);
     prismaMock.transation.aggregate.mockImplementation(({ where }: any) => {
-      if (where.nameCard === 'Nubank' && where.installments) {
+      if (where.nameCard === 'Nubank' && where.Date && where.installments) {
         return Promise.resolve({ _sum: { amount: 50 } });
       }
 
-      if (where.nameCard === 'Nubank') {
-        return Promise.resolve({ _sum: { amount: 300 } });
+      if (where.nameCard === 'Nubank' && where.Date) {
+        return Promise.resolve({ _sum: { amount: 120 } });
+      }
+
+      if (where.nameCard === 'Inter' && where.Date) {
+        return Promise.resolve({ _sum: { amount: 0 } });
       }
 
       if (where.nameCard === 'Inter' && where.installments) {
         return Promise.resolve({ _sum: { amount: 0 } });
       }
 
-      return Promise.resolve({ _sum: { amount: 80 } });
+      return Promise.resolve({ _sum: { amount: 0 } });
     });
 
     await expect(
@@ -794,7 +798,7 @@ describe('TransationService', () => {
         },
         {
           card: 'Inter',
-          valorTotalMes: 80,
+          valorTotalMes: 0,
           valorTotalTodosMesesRestantes: 80,
           valorParceladoMes: 0,
         },
