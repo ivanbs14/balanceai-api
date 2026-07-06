@@ -104,6 +104,35 @@ By default the API listens on `http://localhost:4000`.
 
 The compiled entrypoint is emitted at `dist/src/main.js`.
 
+## Docker
+
+This repository now includes a Docker image definition for local development and production-style builds.
+
+Build the API image directly:
+
+```bash
+docker build -t balance-api-dev ./balance-api
+```
+
+Run the development container through the workspace compose file:
+
+```bash
+docker compose up --build api
+```
+
+Build only the API service from compose:
+
+```bash
+docker compose build api
+```
+
+Notes:
+
+- The container expects a valid `balance-api/.env`.
+- `DATABASE_URL` should keep pointing to the cloud PostgreSQL instance.
+- The image includes `openssl` because Prisma depends on it at runtime.
+- The API remains exposed on `http://localhost:4000`.
+
 ## Render Deployment
 
 The production build uses `tsc` directly, so it does not depend on the Nest CLI binary being present in the build environment.
