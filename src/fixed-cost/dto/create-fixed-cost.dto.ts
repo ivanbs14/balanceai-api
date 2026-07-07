@@ -1,5 +1,5 @@
 /* eslint-disable prettier/prettier */
-import { IsBoolean, IsDecimal, IsEnum, IsInt, IsNotEmpty, IsOptional, IsString, Max, Min } from 'class-validator';
+import { IsBoolean, IsDateString, IsDecimal, IsEnum, IsInt, IsNotEmpty, IsOptional, IsString, Max, Min } from 'class-validator';
 import { FixedCostRecurrence } from '@prisma/client';
 
 export class CreateFixedCostDto {
@@ -16,6 +16,9 @@ export class CreateFixedCostDto {
 
   @IsEnum(FixedCostRecurrence, { message: 'A recorrência informada é inválida.' })
   recurrence: FixedCostRecurrence;
+
+  @IsDateString({}, { message: 'A data inicial deve ser uma data válida.' })
+  startDate: string;
 
   @IsInt({ message: 'O dia de vencimento deve ser um número inteiro.' })
   @Min(1, { message: 'O dia de vencimento mínimo é 1.' })

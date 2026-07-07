@@ -1,7 +1,5 @@
-/* eslint-disable prettier/prettier */
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { FixedCostMonthlyStatus, FixedCostRecurrence, Prisma } from '@prisma/client';
-import { addMonths } from 'date-fns';
+import { FixedCostMonthlyStatus, FixedCostRecurrence } from '@prisma/client';
 import { PrismaService } from '../prisma-services/prisma.service';
 import { CreateFixedCostDto } from './dto/create-fixed-cost.dto';
 import { UpdateFixedCostDto } from './dto/update-fixed-cost.dto';
@@ -15,10 +13,49 @@ export class FixedCostService {
     return recurrence;
   }
 
+  private normalizeDateInput(value: string | Date) {
+    const parsedValue = value instanceof Date ? value : new Date(value);
+
+    if (Number.isNaN(parsedValue.getTime())) {
+      throw new BadRequestException('Data inválida para custo fixo.');
+    }
+
+    return parsedValue;
+  }
+
+  private getMonthIndex(value: string | Date) {
+    const parsedValue = this.normalizeDateInput(value);
+
+    return parsedValue.getUTCFullYear() * 12 + parsedValue.getUTCMonth();
+  }
+
   private validateCompetence(competence: string) {
     if (!competence || !/^\d{4}-\d{2}$/.test(competence)) {
       throw new BadRequestException('Competence inválida. Use o formato YYYY-MM.');
     }
+  }
+
+  private isRecurrenceDueForMonth(params: {
+    recurrence: FixedCostRecurrence;
+    startDate: Date;
+    competence: string;
+  }) {
+    const startMonthIndex = this.getMonthIndex(params.startDate);
+    const competenceMonthIndex = this.getMonthIndex(`${params.competence}-01`);
+    const monthDelta = competenceMonthIndex - startMonthIndex;
+
+    if (monthDelta < 0) {
+      return false;
+    }
+
+    const intervalByRecurrence: Record<FixedCostRecurrence, number> = {
+      MONTHLY: 1,
+      BIMONTHLY: 2,
+      QUARTERLY: 3,
+      YEARLY: 12,
+    };
+
+    return monthDelta % intervalByRecurrence[params.recurrence] === 0;
   }
 
   async create(data: CreateFixedCostDto) {
@@ -28,6 +65,7 @@ export class FixedCostService {
         userId: data.userId,
         defaultAmount: data.defaultAmount,
         recurrence: data.recurrence,
+        startDate: this.normalizeDateInput(data.startDate),
         dueDay: data.dueDay,
         isActive: data.isActive ?? true,
       },
@@ -70,23 +108,33 @@ export class FixedCostService {
     });
 
     return {
-      data: fixedCosts.map((fixedCost) => {
-        const { monthlys, ...rest } = fixedCost;
-        const monthly = monthlys[0];
+      data: fixedCosts
+        .filter(
+          (fixedCost) =>
+            fixedCost.isActive &&
+            this.isRecurrenceDueForMonth({
+              recurrence: fixedCost.recurrence,
+              startDate: fixedCost.startDate,
+              competence,
+            }),
+        )
+        .map((fixedCost) => {
+          const { monthlys, ...rest } = fixedCost;
+          const monthly = monthlys[0];
 
-        return {
-          ...rest,
-          paymentType: this.mapFixedCostPaymentType(fixedCost.recurrence),
-          category: 'FIXED_COST',
-          monthly: {
-            id: monthly?.id ?? null,
-            competence,
-            status: monthly?.status ?? FixedCostMonthlyStatus.PENDING,
-            amount: monthly?.amount ?? fixedCost.defaultAmount,
-            paidAt: monthly?.paidAt ?? null,
-          },
-        };
-      }),
+          return {
+            ...rest,
+            paymentType: this.mapFixedCostPaymentType(fixedCost.recurrence),
+            category: 'FIXED_COST',
+            monthly: {
+              id: monthly?.id ?? null,
+              competence,
+              status: monthly?.status ?? FixedCostMonthlyStatus.PENDING,
+              amount: monthly?.amount ?? fixedCost.defaultAmount,
+              paidAt: monthly?.paidAt ?? null,
+            },
+          };
+        }),
     };
   }
 
@@ -99,7 +147,10 @@ export class FixedCostService {
   async update(id: string, data: UpdateFixedCostDto) {
     return this.prisma.fixedCost.update({
       where: { id },
-      data,
+      data: {
+        ...data,
+        ...(data.startDate ? { startDate: this.normalizeDateInput(data.startDate) } : {}),
+      },
     });
   }
 
@@ -121,9 +172,12 @@ export class FixedCostService {
     }
 
     const amount = data.amount ?? fixedCost.defaultAmount;
-    const paidAt = data.status === FixedCostMonthlyStatus.PAID
-      ? (data.paidAt ? new Date(data.paidAt) : new Date())
-      : null;
+    const paidAt =
+      data.status === FixedCostMonthlyStatus.PAID
+        ? data.paidAt
+          ? new Date(data.paidAt)
+          : new Date()
+        : null;
 
     const existingMonthly = await this.prisma.fixedCostMonthly.findUnique({
       where: {

@@ -72,6 +72,7 @@ model FixedCost {
   name           String
   defaultAmount  Decimal              @db.Decimal(10, 2)
   recurrence     FixedCostRecurrence   @default(MONTHLY)
+  startDate      DateTime
   dueDay         Int
   isActive       Boolean              @default(true)
   createdAt      DateTime             @default(now())
@@ -81,6 +82,7 @@ model FixedCost {
   monthlys       FixedCostMonthly[]
 
   @@index([userId])
+  @@index([startDate])
 }
 
 model FixedCostMonthly {
