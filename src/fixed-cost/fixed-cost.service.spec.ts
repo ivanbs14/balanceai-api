@@ -1,5 +1,10 @@
 import { BadRequestException, NotFoundException } from '@nestjs/common';
-import { FixedCostMonthlyStatus, FixedCostRecurrence } from '@prisma/client';
+import {
+  FixedCostMonthlyStatus,
+  FixedCostRecurrence,
+  TransationCategory,
+  TransationPaymentMethod,
+} from '@prisma/client';
 import { FixedCostService } from './fixed-cost.service';
 
 describe('FixedCostService', () => {
@@ -32,6 +37,8 @@ describe('FixedCostService', () => {
       userId: 'user-1',
       name: 'Aluguel',
       defaultAmount: '1200.00',
+      category: TransationCategory.HOUSING,
+      paymentMethod: TransationPaymentMethod.BANK_SLIP,
       recurrence: FixedCostRecurrence.MONTHLY,
       startDate: '2026-07-15',
       dueDay: 15,
@@ -41,6 +48,8 @@ describe('FixedCostService', () => {
     expect(prismaMock.fixedCost.create).toHaveBeenCalledWith({
       data: expect.objectContaining({
         name: 'Aluguel',
+        category: TransationCategory.HOUSING,
+        paymentMethod: TransationPaymentMethod.BANK_SLIP,
         startDate: new Date('2026-07-15'),
       }),
     });
@@ -53,6 +62,8 @@ describe('FixedCostService', () => {
         userId: 'user-1',
         name: 'Aluguel',
         defaultAmount: '1200.00',
+        category: TransationCategory.HOUSING,
+        paymentMethod: TransationPaymentMethod.BANK_SLIP,
         recurrence: FixedCostRecurrence.MONTHLY,
         startDate: new Date('2026-07-15T00:00:00.000Z'),
         dueDay: 15,
@@ -64,6 +75,8 @@ describe('FixedCostService', () => {
         userId: 'user-1',
         name: 'Seguro',
         defaultAmount: '600.00',
+        category: TransationCategory.OTHER,
+        paymentMethod: TransationPaymentMethod.OTHER,
         recurrence: FixedCostRecurrence.QUARTERLY,
         startDate: new Date('2026-07-10T00:00:00.000Z'),
         dueDay: 10,
@@ -75,6 +88,8 @@ describe('FixedCostService', () => {
         userId: 'user-1',
         name: 'Antigo',
         defaultAmount: '50.00',
+        category: TransationCategory.OTHER,
+        paymentMethod: TransationPaymentMethod.PIX,
         recurrence: FixedCostRecurrence.MONTHLY,
         startDate: new Date('2026-07-01T00:00:00.000Z'),
         dueDay: 1,
@@ -97,6 +112,8 @@ describe('FixedCostService', () => {
         userId: 'user-1',
         name: 'Internet',
         defaultAmount: '100.00',
+        category: TransationCategory.UTILITY,
+        paymentMethod: TransationPaymentMethod.DEBIT_CARD,
         recurrence: FixedCostRecurrence.MONTHLY,
         startDate: new Date('2026-07-05T00:00:00.000Z'),
         dueDay: 5,
@@ -111,6 +128,9 @@ describe('FixedCostService', () => {
       data: [
         expect.objectContaining({
           id: 'fixed-1',
+          category: TransationCategory.UTILITY,
+          paymentMethod: TransationPaymentMethod.DEBIT_CARD,
+          paymentType: TransationPaymentMethod.DEBIT_CARD,
           monthly: {
             id: null,
             competence: '2026-09',

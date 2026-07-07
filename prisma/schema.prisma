@@ -71,6 +71,8 @@ model FixedCost {
   userId         String
   name           String
   defaultAmount  Decimal              @db.Decimal(10, 2)
+  category       TransationCategory
+  paymentMethod  TransationPaymentMethod
   recurrence     FixedCostRecurrence   @default(MONTHLY)
   startDate      DateTime
   dueDay         Int

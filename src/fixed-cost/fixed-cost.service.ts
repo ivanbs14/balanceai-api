@@ -9,10 +9,6 @@ import { UpdateFixedCostMonthlyDto } from './dto/update-fixed-cost-monthly.dto';
 export class FixedCostService {
   constructor(private readonly prisma: PrismaService) {}
 
-  private mapFixedCostPaymentType(recurrence: FixedCostRecurrence) {
-    return recurrence;
-  }
-
   private normalizeDateInput(value: string | Date) {
     const parsedValue = value instanceof Date ? value : new Date(value);
 
@@ -64,6 +60,8 @@ export class FixedCostService {
         name: data.name,
         userId: data.userId,
         defaultAmount: data.defaultAmount,
+        category: data.category,
+        paymentMethod: data.paymentMethod,
         recurrence: data.recurrence,
         startDate: this.normalizeDateInput(data.startDate),
         dueDay: data.dueDay,
@@ -124,8 +122,9 @@ export class FixedCostService {
 
           return {
             ...rest,
-            paymentType: this.mapFixedCostPaymentType(fixedCost.recurrence),
-            category: 'FIXED_COST',
+            paymentType: fixedCost.paymentMethod,
+            paymentMethod: fixedCost.paymentMethod,
+            category: fixedCost.category,
             monthly: {
               id: monthly?.id ?? null,
               competence,
