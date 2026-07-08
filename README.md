@@ -144,10 +144,13 @@ Recommended Render settings:
 npm ci && npm run build
 
 # Start Command
-npm start
+npm run start:deploy
 ```
 
 Keep `NODE_ENV=production` in runtime.
+
+The deploy start command runs `prisma migrate deploy` before booting the API, so
+the runtime database stays aligned with committed Prisma migrations.
 
 ## CORS
 

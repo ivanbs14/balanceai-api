@@ -107,15 +107,19 @@ export class FixedCostService {
 
     return {
       data: fixedCosts
-        .filter(
-          (fixedCost) =>
+        .filter((fixedCost) => {
+          const monthly = fixedCost.monthlys[0];
+          const shouldProjectRecurring =
             fixedCost.isActive &&
             this.isRecurrenceDueForMonth({
               recurrence: fixedCost.recurrence,
               startDate: fixedCost.startDate,
               competence,
-            }),
-        )
+            });
+          const shouldKeepPaidHistory = monthly?.status === FixedCostMonthlyStatus.PAID;
+
+          return shouldProjectRecurring || shouldKeepPaidHistory;
+        })
         .map((fixedCost) => {
           const { monthlys, ...rest } = fixedCost;
           const monthly = monthlys[0];
@@ -144,13 +148,35 @@ export class FixedCostService {
   }
 
   async update(id: string, data: UpdateFixedCostDto) {
-    return this.prisma.fixedCost.update({
+    const existingFixedCost = await this.prisma.fixedCost.findUnique({
+      where: { id },
+    });
+
+    if (!existingFixedCost) {
+      throw new NotFoundException('Custo fixo não encontrado.');
+    }
+
+    const updatedFixedCost = await this.prisma.fixedCost.update({
       where: { id },
       data: {
         ...data,
         ...(data.startDate ? { startDate: this.normalizeDateInput(data.startDate) } : {}),
       },
     });
+
+    if (data.defaultAmount) {
+      await this.prisma.fixedCostMonthly.updateMany({
+        where: {
+          fixedCostId: id,
+          status: FixedCostMonthlyStatus.PENDING,
+        },
+        data: {
+          amount: data.defaultAmount,
+        },
+      });
+    }
+
+    return updatedFixedCost;
   }
 
   async remove(id: string) {

@@ -20,6 +20,7 @@ describe('FixedCostService', () => {
       findUnique: jest.fn(),
       update: jest.fn(),
       create: jest.fn(),
+      updateMany: jest.fn(),
     },
   } as any;
 
@@ -143,6 +144,37 @@ describe('FixedCostService', () => {
     });
   });
 
+  it('should keep paid competence visible even when fixed cost is inactive', async () => {
+    prismaMock.fixedCost.findMany.mockResolvedValue([
+      {
+        id: 'fixed-paid',
+        userId: 'user-1',
+        name: 'Plano',
+        defaultAmount: '80.00',
+        category: TransationCategory.UTILITY,
+        paymentMethod: TransationPaymentMethod.PIX,
+        recurrence: FixedCostRecurrence.MONTHLY,
+        startDate: new Date('2026-01-01T00:00:00.000Z'),
+        dueDay: 1,
+        isActive: false,
+        monthlys: [
+          {
+            id: 'monthly-paid',
+            competence: '2026-07',
+            status: FixedCostMonthlyStatus.PAID,
+            amount: '80.00',
+            paidAt: new Date('2026-07-05T00:00:00.000Z'),
+          },
+        ],
+      },
+    ]);
+
+    const result = await service.findByUserIdAndMonth('user-1', '2026-07');
+
+    expect(result.data.map((item) => item.id)).toEqual(['fixed-paid']);
+    expect(result.data[0]?.monthly.status).toBe(FixedCostMonthlyStatus.PAID);
+  });
+
   it('should reject invalid competence format', async () => {
     await expect(service.findByUserIdAndMonth('user-1', '2026/07')).rejects.toBeInstanceOf(
       BadRequestException,
@@ -179,5 +211,35 @@ describe('FixedCostService', () => {
         status: FixedCostMonthlyStatus.PAID,
       }),
     ).rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  it('should sync pending monthly amounts when updating default amount', async () => {
+    prismaMock.fixedCost.findUnique.mockResolvedValue({
+      id: 'fixed-1',
+      name: 'Internet',
+      defaultAmount: '100.00',
+      category: TransationCategory.UTILITY,
+      paymentMethod: TransationPaymentMethod.DEBIT_CARD,
+      recurrence: FixedCostRecurrence.MONTHLY,
+      startDate: new Date('2026-07-05T00:00:00.000Z'),
+      dueDay: 5,
+      isActive: true,
+    });
+    prismaMock.fixedCost.update.mockResolvedValue({ id: 'fixed-1' });
+    prismaMock.fixedCostMonthly.updateMany.mockResolvedValue({ count: 2 });
+
+    await service.update('fixed-1', {
+      defaultAmount: '150.00',
+    });
+
+    expect(prismaMock.fixedCostMonthly.updateMany).toHaveBeenCalledWith({
+      where: {
+        fixedCostId: 'fixed-1',
+        status: FixedCostMonthlyStatus.PENDING,
+      },
+      data: {
+        amount: '150.00',
+      },
+    });
   });
 });
