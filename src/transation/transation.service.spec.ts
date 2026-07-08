@@ -249,6 +249,56 @@ describe('TransationService', () => {
     );
   });
 
+  it('should include fixed costs in dashboard summary totals', async () => {
+    jest.spyOn(service, 'getAllBalance').mockResolvedValue({
+      totalValues: {
+        totalExpenses: 100,
+        totalInvestments: 50,
+        totalDeposits: 500,
+        balance: 350,
+      },
+      percentsValues: {
+        expensePercentage: 20,
+        investmentPercentage: 10,
+        depositPercentage: 70,
+      },
+      topCategories: [],
+      lastTransactions: [],
+      anualBalance: [],
+    } as any);
+    jest.spyOn(service, 'getTopCreditCardsByMonth').mockResolvedValue({ topCredcards: [] } as any);
+    prismaMock.transation.findMany.mockResolvedValue([]);
+    prismaMock.transation.count.mockResolvedValue(0);
+    fixedCostServiceMock.findByUserIdAndMonth.mockResolvedValue({
+      data: [
+        {
+          id: 'fixed-1',
+          defaultAmount: 25,
+          monthly: { amount: 25, competence: '2026-07', status: 'PENDING', paidAt: null },
+        },
+        {
+          id: 'fixed-2',
+          defaultAmount: 40,
+          monthly: { amount: 35, competence: '2026-07', status: 'PAID', paidAt: null },
+        },
+      ],
+    });
+
+    const result = await service.getDashboardMonthlyData('user-1', '2026-07');
+
+    expect(result.summary.totalValues).toEqual({
+      totalExpenses: 160,
+      totalInvestments: 50,
+      totalDeposits: 500,
+      balance: 290,
+    });
+    expect(result.summary.percentsValues).toEqual({
+      expensePercentage: 32,
+      investmentPercentage: 10,
+      depositPercentage: 58,
+    });
+  });
+
   it('should update a non-installment pending transaction', async () => {
     prismaMock.transation.findUnique.mockResolvedValue({
       id: 'tx-edit-1',

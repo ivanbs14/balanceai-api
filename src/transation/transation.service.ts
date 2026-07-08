@@ -381,6 +381,41 @@ export class TransationService {
     return transactions;
   }
 
+  private mergeFixedCostsIntoDashboardSummary(
+    summary: Awaited<ReturnType<TransationService['getAllBalance']>>,
+    fixedCosts: Awaited<ReturnType<FixedCostService['findByUserIdAndMonth']>>,
+  ) {
+    const fixedCostsTotal = (fixedCosts.data ?? []).reduce((total, fixedCost) => {
+      const amount = Number(fixedCost.monthly?.amount ?? fixedCost.defaultAmount ?? 0);
+      return total + amount;
+    }, 0);
+
+    const totalDeposits = Number(summary.totalValues?.totalDeposits ?? 0);
+    const totalInvestments = Number(summary.totalValues?.totalInvestments ?? 0);
+    const totalExpenses = Number(summary.totalValues?.totalExpenses ?? 0) + fixedCostsTotal;
+    const balance = totalDeposits - (totalExpenses + totalInvestments);
+
+    const calculatePercentage = (value: number, total: number) =>
+      total ? Math.round((value / total) * 1000) / 10 : 0;
+
+    const totalTransactionsAmount = totalDeposits - totalInvestments - totalExpenses;
+
+    return {
+      ...summary,
+      totalValues: {
+        ...summary.totalValues,
+        totalExpenses,
+        balance,
+      },
+      percentsValues: {
+        ...summary.percentsValues,
+        expensePercentage: calculatePercentage(totalExpenses, totalDeposits),
+        investmentPercentage: calculatePercentage(totalInvestments, totalDeposits),
+        depositPercentage: calculatePercentage(totalTransactionsAmount, totalDeposits),
+      },
+    };
+  }
+
   async getDashboardMonthlyData(userId: string, month: string) {
     const [summary, fixedCosts, transactions, creditCard] = await Promise.all([
       this.getAllBalance(userId, month),
@@ -390,7 +425,7 @@ export class TransationService {
     ]);
 
     return {
-      summary,
+      summary: this.mergeFixedCostsIntoDashboardSummary(summary, fixedCosts),
       fixedCosts,
       transactions,
       creditCard,
