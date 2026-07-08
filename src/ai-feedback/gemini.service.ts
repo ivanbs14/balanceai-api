@@ -2,11 +2,6 @@
 import { Injectable, Logger, HttpException, HttpStatus } from '@nestjs/common';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 
-interface RateLimitError {
-  message: string;
-  status?: number;
-}
-
 @Injectable()
 export class GeminiService {
   private readonly logger = new Logger(GeminiService.name);
