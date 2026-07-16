@@ -8,7 +8,7 @@ import {
 } from '@prisma/client';
 import { randomUUID } from 'crypto';
 import { PrismaService } from '../prisma-services/prisma.service';
-import { addMonths } from 'date-fns';
+import { addMonths, format } from 'date-fns';
 import { FixedCostService } from '../fixed-cost/fixed-cost.service';
 import { UpdateInstallmentGroupDto } from './dto/update-installment-group.dto';
 import { UpdateTransationPaymentStatusDto } from './dto/update-transation-payment-status.dto';
@@ -36,7 +36,9 @@ export class TransationService {
   }
 
   private getMonthIdFromDate(value: Date) {
-    return value.toISOString().slice(0, 7);
+    // Usa timezone local para manter consistência com queries de data
+    // Evita bug onde parcelas que atravessam anos desaparecem devido à conversão UTC
+    return format(value, 'yyyy-MM');
   }
 
   private async getOwnedTransaction(id: string, userId: string) {
