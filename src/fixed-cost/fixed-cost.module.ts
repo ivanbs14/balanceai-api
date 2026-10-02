@@ -3,9 +3,10 @@ import { Module } from '@nestjs/common';
 import { PrismaModule } from '../prisma-services/prisma.module';
 import { FixedCostController } from './fixed-cost.controller';
 import { FixedCostService } from './fixed-cost.service';
+import { SessionModule } from '../auth/session.module';
 
 @Module({
-  imports: [PrismaModule],
+  imports: [PrismaModule, SessionModule],
   controllers: [FixedCostController],
   providers: [FixedCostService],
   exports: [FixedCostService],

@@ -15,7 +15,4 @@ export class CreateCardDto {
   @IsDateString({}, { message: 'A data de fechamento da fatura deve ser uma data válida.' })
   invoicePayment: string;
 
-  @IsString()
-  @IsNotEmpty({ message: 'O userId é obrigátorio.' })
-  userId: string;
 }

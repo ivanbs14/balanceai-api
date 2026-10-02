@@ -1,19 +1,52 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { FixedCostMonthlyStatus, FixedCostRecurrence } from '@prisma/client';
-import { PrismaService } from '../prisma-services/prisma.service';
-import { CreateFixedCostDto } from './dto/create-fixed-cost.dto';
-import { UpdateFixedCostDto } from './dto/update-fixed-cost.dto';
-import { UpdateFixedCostMonthlyDto } from './dto/update-fixed-cost-monthly.dto';
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+  NotFoundException,
+} from "@nestjs/common";
+import {
+  FixedCostMonthlyStatus,
+  FixedCostRecurrence,
+  Prisma,
+} from "@prisma/client";
+import { PrismaService } from "../prisma-services/prisma.service";
+import { CreateFixedCostDto } from "./dto/create-fixed-cost.dto";
+import { UpdateFixedCostDto } from "./dto/update-fixed-cost.dto";
+import { UpdateFixedCostMonthlyDto } from "./dto/update-fixed-cost-monthly.dto";
 
 @Injectable()
 export class FixedCostService {
   constructor(private readonly prisma: PrismaService) {}
 
+  private validateId(id: string) {
+    if (!id?.trim())
+      throw new BadRequestException("ID do custo fixo inválido.");
+  }
+
+  private async requireOwned(id: string, userId: string) {
+    this.validateId(id);
+    const fixedCost = await this.prisma.fixedCost.findFirst({
+      where: { id, userId },
+    });
+    if (!fixedCost) throw new NotFoundException("Custo fixo não encontrado.");
+    return fixedCost;
+  }
+
+  private rethrowMissing(error: unknown): never {
+    if (
+      error instanceof Prisma.PrismaClientKnownRequestError &&
+      error.code === "P2025"
+    ) {
+      throw new NotFoundException("Custo fixo não encontrado.");
+    }
+    throw error;
+  }
+
   private normalizeDateInput(value: string | Date) {
     const parsedValue = value instanceof Date ? value : new Date(value);
 
     if (Number.isNaN(parsedValue.getTime())) {
-      throw new BadRequestException('Data inválida para custo fixo.');
+      throw new BadRequestException("Data inválida para custo fixo.");
     }
 
     return parsedValue;
@@ -27,7 +60,9 @@ export class FixedCostService {
 
   private validateCompetence(competence: string) {
     if (!competence || !/^\d{4}-\d{2}$/.test(competence)) {
-      throw new BadRequestException('Competence inválida. Use o formato YYYY-MM.');
+      throw new BadRequestException(
+        "Competence inválida. Use o formato YYYY-MM.",
+      );
     }
   }
 
@@ -54,11 +89,11 @@ export class FixedCostService {
     return monthDelta % intervalByRecurrence[params.recurrence] === 0;
   }
 
-  async create(data: CreateFixedCostDto) {
+  async create(data: CreateFixedCostDto, userId: string) {
     return this.prisma.fixedCost.create({
       data: {
         name: data.name,
-        userId: data.userId,
+        userId,
         defaultAmount: data.defaultAmount,
         category: data.category,
         paymentMethod: data.paymentMethod,
@@ -70,10 +105,11 @@ export class FixedCostService {
     });
   }
 
-  async findAll() {
+  async findAll(userId: string) {
     return this.prisma.fixedCost.findMany({
+      where: { userId },
       orderBy: {
-        createdAt: 'desc',
+        createdAt: "desc",
       },
     });
   }
@@ -82,7 +118,7 @@ export class FixedCostService {
     return this.prisma.fixedCost.findMany({
       where: { userId },
       orderBy: {
-        createdAt: 'asc',
+        createdAt: "asc",
       },
     });
   }
@@ -93,7 +129,7 @@ export class FixedCostService {
     const fixedCosts = await this.prisma.fixedCost.findMany({
       where: { userId },
       orderBy: {
-        createdAt: 'asc',
+        createdAt: "asc",
       },
       include: {
         monthlys: {
@@ -116,7 +152,8 @@ export class FixedCostService {
               startDate: fixedCost.startDate,
               competence,
             });
-          const shouldKeepPaidHistory = monthly?.status === FixedCostMonthlyStatus.PAID;
+          const shouldKeepPaidHistory =
+            monthly?.status === FixedCostMonthlyStatus.PAID;
 
           return shouldProjectRecurring || shouldKeepPaidHistory;
         })
@@ -141,33 +178,44 @@ export class FixedCostService {
     };
   }
 
-  async findOne(id: string) {
-    return this.prisma.fixedCost.findUnique({
-      where: { id },
-    });
+  async findOne(id: string, userId: string) {
+    return this.requireOwned(id, userId);
   }
 
-  async update(id: string, data: UpdateFixedCostDto) {
-    const existingFixedCost = await this.prisma.fixedCost.findUnique({
-      where: { id },
-    });
-
-    if (!existingFixedCost) {
-      throw new NotFoundException('Custo fixo não encontrado.');
+  async update(id: string, userId: string, data: UpdateFixedCostDto) {
+    await this.requireOwned(id, userId);
+    let updatedFixedCost;
+    try {
+      updatedFixedCost = await this.prisma.fixedCost.update({
+        where: { id, userId },
+        data: {
+          ...(data.name !== undefined ? { name: data.name } : {}),
+          ...(data.defaultAmount !== undefined
+            ? { defaultAmount: data.defaultAmount }
+            : {}),
+          ...(data.category !== undefined ? { category: data.category } : {}),
+          ...(data.paymentMethod !== undefined
+            ? { paymentMethod: data.paymentMethod }
+            : {}),
+          ...(data.recurrence !== undefined
+            ? { recurrence: data.recurrence }
+            : {}),
+          ...(data.startDate !== undefined
+            ? { startDate: this.normalizeDateInput(data.startDate) }
+            : {}),
+          ...(data.dueDay !== undefined ? { dueDay: data.dueDay } : {}),
+          ...(data.isActive !== undefined ? { isActive: data.isActive } : {}),
+        },
+      });
+    } catch (error) {
+      this.rethrowMissing(error);
     }
 
-    const updatedFixedCost = await this.prisma.fixedCost.update({
-      where: { id },
-      data: {
-        ...data,
-        ...(data.startDate ? { startDate: this.normalizeDateInput(data.startDate) } : {}),
-      },
-    });
-
-    if (data.defaultAmount) {
+    if (data.defaultAmount !== undefined) {
       await this.prisma.fixedCostMonthly.updateMany({
         where: {
           fixedCostId: id,
+          fixedCost: { userId },
           status: FixedCostMonthlyStatus.PENDING,
         },
         data: {
@@ -179,22 +227,28 @@ export class FixedCostService {
     return updatedFixedCost;
   }
 
-  async remove(id: string) {
-    return this.prisma.fixedCost.delete({
-      where: { id },
-    });
+  async remove(id: string, userId: string) {
+    await this.requireOwned(id, userId);
+    if (
+      await this.prisma.fixedCostMonthly.count({ where: { fixedCostId: id } })
+    ) {
+      throw new ConflictException("Custo fixo possui mensalidades associadas.");
+    }
+    try {
+      return await this.prisma.fixedCost.delete({ where: { id, userId } });
+    } catch (error) {
+      this.rethrowMissing(error);
+    }
   }
 
-  async updateMonthly(id: string, competence: string, data: UpdateFixedCostMonthlyDto) {
+  async updateMonthly(
+    id: string,
+    userId: string,
+    competence: string,
+    data: UpdateFixedCostMonthlyDto,
+  ) {
     this.validateCompetence(competence);
-
-    const fixedCost = await this.prisma.fixedCost.findUnique({
-      where: { id },
-    });
-
-    if (!fixedCost) {
-      throw new NotFoundException('Custo fixo não encontrado.');
-    }
+    const fixedCost = await this.requireOwned(id, userId);
 
     const amount = data.amount ?? fixedCost.defaultAmount;
     const paidAt =

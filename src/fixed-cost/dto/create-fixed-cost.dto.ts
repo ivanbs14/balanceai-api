@@ -7,10 +7,6 @@ export class CreateFixedCostDto {
   @IsNotEmpty({ message: 'O nome do custo fixo é obrigatório.' })
   name: string;
 
-  @IsString()
-  @IsNotEmpty({ message: 'O userId é obrigatório.' })
-  userId: string;
-
   @IsDecimal({ decimal_digits: '2', force_decimal: true }, { message: 'O valor padrão deve ser um número decimal com 2 casas decimais.' })
   defaultAmount: string;
 

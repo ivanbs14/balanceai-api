@@ -1,40 +1,38 @@
 /* eslint-disable prettier/prettier */
-import { Body, Controller, Delete, Get, Param, Patch, Post, Query } from '@nestjs/common';
+import { Body, Controller, Delete, ForbiddenException, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
+import { AuthPayload } from '../auth/auth.types';
+import { CookieAuthGuard } from '../auth/cookie-auth.guard';
+import { CurrentUser } from '../auth/current-user.decorator';
 import { CreateFixedCostDto } from './dto/create-fixed-cost.dto';
 import { UpdateFixedCostDto } from './dto/update-fixed-cost.dto';
 import { UpdateFixedCostMonthlyDto } from './dto/update-fixed-cost-monthly.dto';
 import { FixedCostService } from './fixed-cost.service';
 
 @Controller('fixed-costs')
+@UseGuards(CookieAuthGuard)
 export class FixedCostController {
   constructor(private readonly fixedCostService: FixedCostService) {}
 
   @Post()
-  create(@Body() data: CreateFixedCostDto) {
-    return this.fixedCostService.create(data);
+  create(@Body() data: CreateFixedCostDto, @CurrentUser() user: AuthPayload) {
+    return this.fixedCostService.create(data, user.userId);
   }
 
   @Get()
-  findAll(@Query('userId') userId?: string, @Query('month') month?: string) {
-    if (userId && month) {
-      return this.fixedCostService.findByUserIdAndMonth(userId, month);
-    }
-
-    if (userId) {
-      return this.fixedCostService.findByUserId(userId);
-    }
-
-    return this.fixedCostService.findAll();
+  findAll(@CurrentUser() user: AuthPayload, @Query('userId') userId?: string, @Query('month') month?: string) {
+    if (userId !== undefined && userId !== user.userId) throw new ForbiddenException();
+    if (month !== undefined) return this.fixedCostService.findByUserIdAndMonth(user.userId, month);
+    return this.fixedCostService.findAll(user.userId);
   }
 
   @Get(':id')
-  findOne(@Param('id') id: string) {
-    return this.fixedCostService.findOne(id);
+  findOne(@Param('id') id: string, @CurrentUser() user: AuthPayload) {
+    return this.fixedCostService.findOne(id, user.userId);
   }
 
   @Patch(':id')
-  update(@Param('id') id: string, @Body() data: UpdateFixedCostDto) {
-    return this.fixedCostService.update(id, data);
+  update(@Param('id') id: string, @Body() data: UpdateFixedCostDto, @CurrentUser() user: AuthPayload) {
+    return this.fixedCostService.update(id, user.userId, data);
   }
 
   @Patch(':id/monthly/:competence')
@@ -42,12 +40,13 @@ export class FixedCostController {
     @Param('id') id: string,
     @Param('competence') competence: string,
     @Body() data: UpdateFixedCostMonthlyDto,
+    @CurrentUser() user: AuthPayload,
   ) {
-    return this.fixedCostService.updateMonthly(id, competence, data);
+    return this.fixedCostService.updateMonthly(id, user.userId, competence, data);
   }
 
   @Delete(':id')
-  remove(@Param('id') id: string) {
-    return this.fixedCostService.remove(id);
+  remove(@Param('id') id: string, @CurrentUser() user: AuthPayload) {
+    return this.fixedCostService.remove(id, user.userId);
   }
 }

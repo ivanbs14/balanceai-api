@@ -1,135 +1,152 @@
-/* eslint-disable prettier/prettier */
-import { Injectable } from '@nestjs/common';
-import { CreateCardDto } from './dto/create-card.dto';
-import { UpdateCardDto } from './dto/update-card.dto';
-import { PrismaService } from '../prisma-services/prisma.service';
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+  NotFoundException,
+} from "@nestjs/common";
+import { Prisma } from "@prisma/client";
+import { PrismaService } from "../prisma-services/prisma.service";
+import { CreateCardDto } from "./dto/create-card.dto";
+import { UpdateCardDto } from "./dto/update-card.dto";
 
 @Injectable()
 export class CardService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async create(createCardDto: CreateCardDto) {
+  private validateId(id: string) {
+    if (!id?.trim()) throw new BadRequestException("ID do cartão inválido.");
+  }
+
+  private async requireOwned(id: string, userId: string) {
+    this.validateId(id);
+    const card = await this.prisma.card.findFirst({ where: { id, userId } });
+    if (!card) throw new NotFoundException("Cartão não encontrado.");
+    return card;
+  }
+
+  private rethrowMissing(error: unknown): never {
+    if (
+      error instanceof Prisma.PrismaClientKnownRequestError &&
+      error.code === "P2025"
+    ) {
+      throw new NotFoundException("Cartão não encontrado.");
+    }
+    throw error;
+  }
+
+  create(data: CreateCardDto, userId: string) {
     return this.prisma.card.create({
       data: {
-        ...createCardDto,
-        invoiceDate: new Date(createCardDto.invoiceDate),
-        invoicePayment: new Date(createCardDto.invoicePayment),
+        name: data.name,
+        invoiceDate: new Date(data.invoiceDate),
+        invoicePayment: new Date(data.invoicePayment),
+        limitBalance: data.limitBalance,
+        userId,
       },
     });
   }
 
-  async findAll() {
-    return this.prisma.card.findMany();
+  findAll(userId: string) {
+    return this.prisma.card.findMany({ where: { userId } });
   }
 
-  async findAllByUserId(userId: string) {
-    const cards = await this.prisma.card.findMany({
-      where: {
-        userId: userId,
-      },
-      orderBy: {
-        createdAt: 'asc',
-      },
-    });
-  
-    return cards;
-  }
-
-  async findOne(id: string) {
-    return this.prisma.card.findUnique({
-      where: { id },
+  findAllByUserId(userId: string) {
+    return this.prisma.card.findMany({
+      where: { userId },
+      orderBy: { createdAt: "asc" },
     });
   }
 
-  async findCardTransations(cardId: string) {
+  async findOne(id: string, userId: string) {
+    return this.requireOwned(id, userId);
+  }
+
+  async findCardTransations(cardId: string, userId: string) {
+    await this.requireOwned(cardId, userId);
     return this.prisma.transation.findMany({
-      where: {
-        cardId: cardId,
-      },
-      orderBy: {
-        Date: 'desc',
-      },
+      where: { cardId, userId },
+      orderBy: { Date: "desc" },
     });
-  };
+  }
 
   async findTransationsByCard(
-  cardId: string,
-  date?: string,
-  page: number = 1,
-  pageSize: number = 10,
-) {
-  if (!cardId) {
-    throw new Error('cardId is required');
-  }
-
-  const whereClause: any = {
-    cardId,
-  };
-
-  if (date) {
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
-      throw new Error('Invalid date format. Expected format: YYYY-MM-DD');
+    cardId: string,
+    userId: string,
+    date?: string,
+    page = 1,
+    pageSize = 10,
+  ) {
+    await this.requireOwned(cardId, userId);
+    if (
+      !Number.isSafeInteger(page) ||
+      page < 1 ||
+      !Number.isSafeInteger(pageSize) ||
+      pageSize < 1 ||
+      pageSize > 100 ||
+      (page - 1) * pageSize > 2147483647
+    ) {
+      throw new BadRequestException("Paginação inválida.");
     }
-
-    const [year, month] = date.split('-');
-    const targetMonth = parseInt(month, 10) - 1;
-
-    const startDate = new Date(Number(year), targetMonth, 1);
-    const endDate = new Date(startDate);
-    endDate.setMonth(endDate.getMonth() + 1);
-
-    whereClause.Date = {
-      gte: startDate,
-      lt: endDate,
+    const where: Prisma.TransationWhereInput = { cardId, userId };
+    if (date) {
+      if (
+        !/^\d{4}-(0[1-9]|1[0-2])-\d{2}$/.test(date) ||
+        Number.isNaN(new Date(date).getTime())
+      ) {
+        throw new BadRequestException("Data inválida. Use YYYY-MM-DD.");
+      }
+      const [year, month] = date.split("-").map(Number);
+      const startDate = new Date(year, month - 1, 1);
+      const endDate = new Date(year, month, 1);
+      where.Date = { gte: startDate, lt: endDate };
+    }
+    const transactions = await this.prisma.transation.findMany({
+      where,
+      skip: (page - 1) * pageSize,
+      take: pageSize,
+      orderBy: { Date: "desc" },
+    });
+    const totalRecords = await this.prisma.transation.count({ where });
+    return {
+      transactions,
+      totalPages: Math.ceil(totalRecords / pageSize),
+      currentPage: page,
+      pageSize,
     };
   }
 
-  const skip = (page - 1) * pageSize;
-
-  const transactions = await this.prisma.transation.findMany({
-    where: whereClause,
-    skip,
-    take: pageSize,
-    orderBy: {
-      Date: 'desc',
-    },
-  });
-
-  const totalRecords = await this.prisma.transation.count({
-    where: whereClause,
-  });
-
-  const totalPages = Math.ceil(totalRecords / pageSize);
-
-  return {
-    transactions,
-    totalPages,
-    currentPage: page,
-    pageSize,
-  };
-}
-
-
-
-
-  async update(id: string, updateCardDto: UpdateCardDto) {
-    return this.prisma.card.update({
-      where: { id },
-      data: {
-        ...updateCardDto,
-        ...(updateCardDto.invoiceDate
-          ? { invoiceDate: new Date(updateCardDto.invoiceDate) }
-          : {}),
-        ...(updateCardDto.invoicePayment
-          ? { invoicePayment: new Date(updateCardDto.invoicePayment) }
-          : {}),
-      },
-    });
+  async update(id: string, userId: string, data: UpdateCardDto) {
+    await this.requireOwned(id, userId);
+    try {
+      return await this.prisma.card.update({
+        where: { id, userId },
+        data: {
+          ...(data.name !== undefined ? { name: data.name } : {}),
+          ...(data.invoiceDate !== undefined
+            ? { invoiceDate: new Date(data.invoiceDate) }
+            : {}),
+          ...(data.invoicePayment !== undefined
+            ? { invoicePayment: new Date(data.invoicePayment) }
+            : {}),
+          ...(data.limitBalance !== undefined
+            ? { limitBalance: data.limitBalance }
+            : {}),
+        },
+      });
+    } catch (error) {
+      this.rethrowMissing(error);
+    }
   }
 
-  async remove(id: string) {
-    return this.prisma.card.delete({
-      where: { id },
-    });
+  async remove(id: string, userId: string) {
+    await this.requireOwned(id, userId);
+    if (await this.prisma.transation.count({ where: { cardId: id } })) {
+      throw new ConflictException("Cartão possui transações associadas.");
+    }
+    try {
+      return await this.prisma.card.delete({ where: { id, userId } });
+    } catch (error) {
+      this.rethrowMissing(error);
+    }
   }
 }
