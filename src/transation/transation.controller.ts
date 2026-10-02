@@ -102,6 +102,14 @@ export class TransationController {
     return this.transationService.findTransactionsByCard(user.userId, nameCard);
   }
 
+  @Get(':id/installment-group')
+  async getInstallmentGroupSummary(
+    @Param('id') id: string,
+    @CurrentUser() user: AuthPayload,
+  ) {
+    return this.transationService.getInstallmentGroupSummary(id, user.userId);
+  }
+
   @Get(':id')
   async findOne(@Param('id') id: string, @CurrentUser() user: AuthPayload) {
     return this.transationService.findOne(id, user.userId);

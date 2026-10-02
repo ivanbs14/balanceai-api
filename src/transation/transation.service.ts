@@ -13,6 +13,7 @@ import { FixedCostService } from '../fixed-cost/fixed-cost.service';
 import { UpdateInstallmentGroupDto } from './dto/update-installment-group.dto';
 import { UpdateTransationPaymentStatusDto } from './dto/update-transation-payment-status.dto';
 import { UpdateTransationDto } from './dto/update-transation.dto';
+import { allocateInstallmentAmounts } from './installment-amounts';
 
 @Injectable()
 export class TransationService {
@@ -159,13 +160,13 @@ export class TransationService {
     baseTransaction: Prisma.TransationUncheckedCreateInput,
     startDate: Date,
     installments: number,
-    totalAmount: string,
+    totalAmount: Prisma.Decimal.Value | Prisma.DecimalJsLike,
   ) {
-    const installmentAmount = Number(totalAmount) / installments;
+    const amounts = allocateInstallmentAmounts(totalAmount, installments);
 
     return Array.from({ length: installments }, (_, index) => ({
       ...baseTransaction,
-      amount: installmentAmount,
+      amount: amounts[index],
       installments,
       installmentInfo: `${index + 1}/${installments}`,
       Date: addMonths(startDate, index),
@@ -182,6 +183,37 @@ export class TransationService {
     }
 
     return transaction;
+  }
+
+  async getInstallmentGroupSummary(id: string, userId: string) {
+    const anchor = await this.getInstallmentGroupTransaction(id, userId);
+    const group = await this.prisma.transation.findMany({
+      where: { installmentGroupId: anchor.installmentGroupId, userId },
+    });
+
+    if (group.length === 0) {
+      throw new NotFoundException('Grupo parcelado não encontrado.');
+    }
+
+    const orderedGroup = [...group].sort((left, right) => {
+      const sequenceDifference = this.getInstallmentSequence(left) - this.getInstallmentSequence(right);
+      return sequenceDifference || left.Date.getTime() - right.Date.getTime();
+    });
+    const first = orderedGroup[0];
+    const total = orderedGroup.reduce(
+      (sum, installment) => sum.plus(installment.amount),
+      new Prisma.Decimal(0),
+    );
+
+    return {
+      name: first.name,
+      totalAmount: total.toFixed(2),
+      startDate: first.Date.toISOString().slice(0, 10),
+      installments: first.installments,
+      paymentMethod: first.paymentMethod,
+      cardId: first.cardId,
+      cardName: first.nameCard,
+    };
   }
 
   private async findOpenInstallmentsToDelete(transaction: {
@@ -268,29 +300,24 @@ export class TransationService {
     data.cardId = cardData.cardId;
     data.nameCard = cardData.nameCard;
   
-    const transactions = [];
     const normalizedDate = this.normalizeDateInput(data.Date as string | Date);
   
     if (this.supportsInstallments(data.paymentMethod) && data.installments > 1) {
-      const installmentValue = Number(data.amount) / data.installments;
-      const startDate = normalizedDate;
       const installmentGroupId = randomUUID();
-  
-      for (let i = 1; i <= data.installments; i++) {
-        transactions.push(
-          this.prisma.transation.create({
-            data: {
-              ...data,
-              amount: installmentValue,
-              installmentInfo: `${i}/${data.installments}`,
-              installmentGroupId,
-              Date: addMonths(startDate, i - 1),
-            },
-          })
-        );
-      }
-  
-      return Promise.all(transactions);
+      const entries = this.buildInstallmentGroupEntries(
+        { ...data, installmentGroupId },
+        normalizedDate,
+        data.installments,
+        data.amount,
+      );
+
+      return this.prisma.$transaction(async (tx) => {
+        const created = [];
+        for (const entry of entries) {
+          created.push(await tx.transation.create({ data: entry }));
+        }
+        return created;
+      });
     }
     return this.prisma.transation.create({
       data: {
@@ -494,7 +521,7 @@ export class TransationService {
         userId,
         name: data.name,
         type: anchorTransaction.type,
-        amount: Number(data.amount) / data.installments,
+        amount: data.amount,
         category: anchorTransaction.category,
         paymentMethod: data.paymentMethod,
         paymentStatus: TransationPaymentStatus.PENDING,

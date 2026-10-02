@@ -89,7 +89,7 @@ describe('TransationService', () => {
       userId: 'user-1',
       name: 'Notebook',
       type: 'EXPENSE',
-      amount: '900.00',
+      amount: '100.00',
       category: 'OTHER',
       paymentMethod: TransationPaymentMethod.PIX,
       installments: 3,
@@ -98,13 +98,17 @@ describe('TransationService', () => {
     } as any);
 
     expect(Array.isArray(result)).toBe(true);
+    expect(prismaMock.$transaction).toHaveBeenCalledTimes(1);
     expect(prismaMock.transation.create).toHaveBeenCalledTimes(3);
+    expect(
+      prismaMock.transation.create.mock.calls.map(([call]: any[]) => call.data.amount.toFixed(2)),
+    ).toEqual(['33.34', '33.33', '33.33']);
     expect(prismaMock.transation.create).toHaveBeenNthCalledWith(
       1,
       expect.objectContaining({
         data: expect.objectContaining({
           paymentMethod: TransationPaymentMethod.PIX,
-          amount: 300,
+          amount: expect.anything(),
           installmentInfo: '1/3',
         }),
       }),
@@ -414,7 +418,7 @@ describe('TransationService', () => {
 
     await service.updateInstallmentGroup('tx-group-1', 'user-1', {
       name: 'Notebook Pro',
-      amount: '1200.00',
+      amount: '100.00',
       Date: '2026-10-05',
       installments: 3,
       paymentMethod: TransationPaymentMethod.PIX,
@@ -422,13 +426,16 @@ describe('TransationService', () => {
 
     expect(prismaMock.$transaction).toHaveBeenCalled();
     expect(prismaMock.transation.update).toHaveBeenCalledTimes(3);
+    expect(
+      prismaMock.transation.update.mock.calls.map(([call]: any[]) => call.data.amount.toFixed(2)),
+    ).toEqual(['33.34', '33.33', '33.33']);
     expect(prismaMock.transation.update).toHaveBeenNthCalledWith(
       1,
       expect.objectContaining({
         where: { id: 'tx-group-1' },
         data: expect.objectContaining({
           name: 'Notebook Pro',
-          amount: 400,
+          amount: expect.anything(),
           installments: 3,
           installmentInfo: '1/3',
           paymentMethod: TransationPaymentMethod.PIX,

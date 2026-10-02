@@ -111,6 +111,58 @@ describe("Transaction card ownership (HTTP, fake persistence)", () => {
     expect(transactions).toHaveLength(0);
   });
 
+  it("reads the persisted group total from either end only for its owner", async () => {
+    await request(app.getHttpServer())
+      .post("/transations")
+      .set("Cookie", cookieA)
+      .send(
+        expense({
+          paymentMethod: "PIX",
+          cardId: undefined,
+          amount: "100.00",
+          installments: 3,
+        }),
+      )
+      .expect(201);
+
+    for (const id of ["tx-1", "tx-3"]) {
+      const response = await request(app.getHttpServer())
+        .get(`/transations/${id}/installment-group`)
+        .set("Cookie", cookieA)
+        .expect(200);
+      expect(response.body).toMatchObject({
+        totalAmount: "100.00",
+        startDate: "2026-10-02",
+        installments: 3,
+        paymentMethod: "PIX",
+      });
+    }
+
+    await request(app.getHttpServer())
+      .get("/transations/tx-2/installment-group")
+      .set("Cookie", cookieB)
+      .expect(404);
+    await request(app.getHttpServer())
+      .get("/transations/missing/installment-group")
+      .set("Cookie", cookieA)
+      .expect(404);
+    await request(app.getHttpServer())
+      .get("/transations/tx-1/installment-group")
+      .expect(401);
+
+    await request(app.getHttpServer())
+      .post("/transations")
+      .set("Cookie", cookieA)
+      .send(
+        expense({ paymentMethod: "PIX", cardId: undefined, installments: 1 }),
+      )
+      .expect(201);
+    await request(app.getHttpServer())
+      .get("/transations/tx-4/installment-group")
+      .set("Cookie", cookieA)
+      .expect(400);
+  });
+
   it("creates only with an owned card and uses its persisted name", async () => {
     await request(app.getHttpServer())
       .post("/transations")
