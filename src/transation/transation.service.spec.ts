@@ -19,7 +19,7 @@ describe('TransationService', () => {
       aggregate: jest.fn(),
     },
     card: {
-      findUnique: jest.fn(),
+      findFirst: jest.fn(),
     },
     $transaction: jest.fn(async (callback: any) => callback(prismaMock)),
   } as any;
@@ -130,7 +130,7 @@ describe('TransationService', () => {
   });
 
   it('should still require card lookup only for credit card', async () => {
-    prismaMock.card.findUnique.mockResolvedValue({ id: 'card-1', name: 'Nubank' });
+    prismaMock.card.findFirst.mockResolvedValue({ id: 'card-1', userId: 'user-1', name: 'Nubank' });
     prismaMock.transation.create.mockResolvedValue({ id: 'tx-card' });
 
     await service.create({
@@ -146,8 +146,8 @@ describe('TransationService', () => {
       withdrawal: 'DEPOSIT',
     } as any);
 
-    expect(prismaMock.card.findUnique).toHaveBeenCalledWith({
-      where: { id: 'card-1' },
+    expect(prismaMock.card.findFirst).toHaveBeenCalledWith({
+      where: { id: 'card-1', userId: 'user-1' },
     });
   });
 
@@ -471,7 +471,7 @@ describe('TransationService', () => {
   });
 
   it('should create extra parcels when installment count increases', async () => {
-    prismaMock.card.findUnique.mockResolvedValue({ id: 'card-1', name: 'Nubank' });
+    prismaMock.card.findFirst.mockResolvedValue({ id: 'card-1', userId: 'user-1', name: 'Nubank' });
     prismaMock.transation.findUnique.mockResolvedValue({
       id: 'tx-card-1',
       userId: 'user-1',
@@ -530,8 +530,8 @@ describe('TransationService', () => {
       cardId: 'card-1',
     } as any);
 
-    expect(prismaMock.card.findUnique).toHaveBeenCalledWith({
-      where: { id: 'card-1' },
+    expect(prismaMock.card.findFirst).toHaveBeenCalledWith({
+      where: { id: 'card-1', userId: 'user-1' },
     });
     expect(prismaMock.transation.create).toHaveBeenCalledTimes(2);
     expect(prismaMock.transation.create).toHaveBeenNthCalledWith(

@@ -121,23 +121,28 @@ export class TransationService {
     return Number.MAX_SAFE_INTEGER;
   }
 
-  private async resolveInstallmentGroupCard(
+  private async resolveOwnedCard(
     paymentMethod: TransationPaymentMethod,
-    cardId?: string,
+    cardId: string | null | undefined,
+    userId: string,
   ) {
     if (paymentMethod !== TransationPaymentMethod.CREDIT_CARD) {
+      if (cardId !== undefined) {
+        throw new BadRequestException('O cardId só pode ser informado para pagamentos com cartão de crédito.');
+      }
+
       return {
         cardId: null,
         nameCard: null,
       };
     }
 
-    if (!cardId) {
+    if (typeof cardId !== 'string' || !cardId.trim()) {
       throw new BadRequestException('O cardId e obrigatorio para pagamentos com cartao de credito.');
     }
 
-    const card = await this.prisma.card.findUnique({
-      where: { id: cardId },
+    const card = await this.prisma.card.findFirst({
+      where: { id: cardId, userId },
     });
 
     if (!card) {
@@ -259,17 +264,9 @@ export class TransationService {
       data.withdrawal = null;
     }
   
-    if (data.paymentMethod === TransationPaymentMethod.CREDIT_CARD && data.cardId) {
-      const card = await this.prisma.card.findUnique({
-        where: { id: data.cardId },
-      });
-  
-      if (!card) {
-        throw new BadRequestException('Cartão não encontrado para o cardId informado.');
-      }
-  
-      data.nameCard = card.name;
-    }
+    const cardData = await this.resolveOwnedCard(data.paymentMethod, data.cardId, data.userId);
+    data.cardId = cardData.cardId;
+    data.nameCard = cardData.nameCard;
   
     const transactions = [];
     const normalizedDate = this.normalizeDateInput(data.Date as string | Date);
@@ -467,7 +464,7 @@ export class TransationService {
     }
 
     const anchorTransaction = await this.getInstallmentGroupTransaction(id, userId);
-    const cardData = await this.resolveInstallmentGroupCard(data.paymentMethod, data.cardId);
+    const cardData = await this.resolveOwnedCard(data.paymentMethod, data.cardId, userId);
     const startDate = this.normalizeDateInput(data.Date);
 
     return this.prisma.$transaction(async (tx) => {
