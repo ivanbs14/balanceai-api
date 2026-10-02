@@ -32,16 +32,14 @@ export class CookieAuthGuard implements CanActivate {
   constructor(private readonly jwtService: JwtService) {}
 
   canActivate(context: ExecutionContext): boolean {
-    const request = context.switchToHttp().getRequest<
-      Request & { user?: AuthPayload }
-    >();
-    const token = readCookieValue(request.headers.cookie, AUTH_COOKIE_NAME);
-
-    if (!token) {
-      throw new UnauthorizedException("Sessao nao encontrada");
-    }
-
+    const request = context
+      .switchToHttp()
+      .getRequest<Request & { user?: AuthPayload }>();
     try {
+      const token = readCookieValue(request.headers.cookie, AUTH_COOKIE_NAME);
+      if (!token) {
+        throw new UnauthorizedException("Sessao nao encontrada");
+      }
       request.user = this.jwtService.verify<AuthPayload>(token);
       return true;
     } catch {

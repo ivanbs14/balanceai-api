@@ -1,19 +1,27 @@
-/* eslint-disable prettier/prettier */
-import { IsOptional } from 'class-validator';
+import { IsEmail, IsNotEmpty, IsString, ValidateIf } from "class-validator";
 
 export class UpdateUserDto {
-  @IsOptional()
+  @ValidateIf((_object, value) => value !== undefined)
+  @IsString()
+  @IsNotEmpty()
   name?: string;
 
-  @IsOptional()
+  @ValidateIf((_object, value) => value !== undefined)
+  @IsString()
+  @IsNotEmpty()
   document?: string;
 
-  @IsOptional()
+  @ValidateIf((_object, value) => value !== undefined)
+  @IsEmail()
   email?: string;
 
-  @IsOptional()
+  @ValidateIf((_object, value) => value !== undefined)
+  @IsString()
+  @IsNotEmpty()
   password?: string;
 
-  @IsOptional()
-  role?: string;
+  @ValidateIf((_object, value) => value !== undefined)
+  @IsString()
+  @IsNotEmpty()
+  currentPassword?: string;
 }
