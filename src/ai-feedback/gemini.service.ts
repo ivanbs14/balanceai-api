@@ -1,14 +1,15 @@
 /* eslint-disable prettier/prettier */
-import { Injectable, Logger, HttpException, HttpStatus } from '@nestjs/common';
+import { Injectable, HttpException, HttpStatus } from '@nestjs/common';
+import { PinoLogger } from 'nestjs-pino';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 
 @Injectable()
 export class GeminiService {
-  private readonly logger = new Logger(GeminiService.name);
   private readonly genAI: GoogleGenerativeAI;
   private readonly model: string;
 
-  constructor() {
+  constructor(private readonly logger: PinoLogger) {
+    this.logger.setContext(GeminiService.name);
     const apiKey = process.env.GEMINI_API_KEY;
     
     if (!apiKey) {
@@ -42,14 +43,14 @@ export class GeminiService {
 
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
       try {
-        this.logger.log(`Calling Gemini API (attempt ${attempt + 1}/${maxRetries + 1})`);
+        this.logger.info({ event: 'gemini_request_started', attempt: attempt + 1 });
         
         const model = this.genAI.getGenerativeModel({ model: this.model });
         const result = await model.generateContent(prompt);
         const response = await result.response;
         const text = response.text();
 
-        this.logger.log('Successfully received response from Gemini API');
+        this.logger.info({ event: 'gemini_request_succeeded', attempt: attempt + 1 });
         return text;
       } catch (error) {
         lastError = error as Error;
@@ -58,10 +59,7 @@ export class GeminiService {
         if (this.isRateLimitError(error)) {
           const retryDelay = this.extractRetryDelay(error);
           
-          this.logger.error(
-            `Gemini API rate limit exceeded (attempt ${attempt + 1}/${maxRetries + 1}). ` +
-            `Quota exhausted. ${retryDelay ? `Suggested retry: ${retryDelay/1000}s` : ''}`
-          );
+          this.logger.warn({ event: 'gemini_request_failed', attempt: attempt + 1, errorCode: 'PROVIDER_RATE_LIMIT' });
           
           // Se é rate limit, não adianta tentar novamente imediatamente
           if (attempt === 0) {
@@ -77,13 +75,13 @@ export class GeminiService {
             );
           }
         } else {
-          this.logger.warn(`Gemini API call failed (attempt ${attempt + 1}): ${lastError.message}`);
+          this.logger.warn({ event: 'gemini_request_failed', attempt: attempt + 1, errorCode: 'PROVIDER_ERROR' });
         }
         
         if (attempt < maxRetries && !this.isRateLimitError(error)) {
           // Exponential backoff apenas para erros não-rate-limit
           const waitTime = Math.pow(2, attempt) * 1000;
-          this.logger.log(`Retrying in ${waitTime}ms...`);
+          this.logger.info({ event: 'gemini_request_retry_scheduled', attempt: attempt + 2, delayMs: waitTime });
           await new Promise(resolve => setTimeout(resolve, waitTime));
         }
       }

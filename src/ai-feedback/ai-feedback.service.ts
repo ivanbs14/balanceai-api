@@ -1,5 +1,6 @@
 /* eslint-disable prettier/prettier */
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
+import { PinoLogger } from 'nestjs-pino';
 import { PrismaService } from '../prisma-services/prisma.service';
 import { GeminiService } from './gemini.service';
 import { TransationService } from '../transation/transation.service';
@@ -8,20 +9,21 @@ import { AIFeedbackResponseDto } from './dto/ai-feedback-response.dto';
 
 @Injectable()
 export class AIFeedbackService {
-  private readonly logger = new Logger(AIFeedbackService.name);
-
   constructor(
     private readonly prisma: PrismaService,
     private readonly geminiService: GeminiService,
     private readonly transationService: TransationService,
-  ) {}
+    private readonly logger: PinoLogger,
+  ) {
+    this.logger.setContext(AIFeedbackService.name);
+  }
 
   async generateFeedback(
     userId: string, 
     competence: string, 
     forceRegenerate: boolean = false
   ): Promise<AIFeedbackResponseDto> {
-    this.logger.log(`Generating feedback for user ${userId}, competence ${competence} (force: ${forceRegenerate})`);
+    this.logger.info({ event: 'feedback_generation_started', forceRegenerate });
 
     // Check if feedback already exists (cache) - skip if force regenerate
     if (!forceRegenerate) {
@@ -35,17 +37,18 @@ export class AIFeedbackService {
       });
 
       if (existingFeedback) {
-        this.logger.log(`Using cached feedback for ${userId}/${competence}`);
+        this.logger.info({ event: 'feedback_cache_hit' });
         return this.mapToDto(existingFeedback);
       }
     } else {
-      this.logger.log(`Force regenerating feedback for ${userId}/${competence}`);
+      this.logger.info({ event: 'feedback_cache_bypassed' });
     }
 
     // Get transactions for the month
     const transactions = await this.getMonthlyTransactions(userId, competence);
 
     if (transactions.length === 0) {
+      this.logger.warn({ event: 'feedback_generation_failed', errorCode: 'NO_TRANSACTIONS' });
       throw new NotFoundException('Não há transações para o período selecionado');
     }
 
@@ -53,6 +56,7 @@ export class AIFeedbackService {
     const metrics = this.calculateMetrics(transactions);
 
     if (metrics.totalIncome === 0) {
+      this.logger.warn({ event: 'feedback_generation_failed', errorCode: 'NO_INCOME' });
       throw new NotFoundException('Não há entradas (DEPOSIT) registradas para o período selecionado');
     }
 
@@ -83,6 +87,7 @@ export class AIFeedbackService {
       },
     });
 
+    this.logger.info({ event: 'feedback_generation_succeeded' });
     return this.mapToDto(feedback);
   }
 
@@ -110,8 +115,8 @@ export class AIFeedbackService {
         competence,
       );
       return dashboardData;
-    } catch (error) {
-      this.logger.error(`Error fetching transactions: ${error.message}`);
+    } catch {
+      this.logger.error({ event: 'feedback_transactions_read_failed', errorCode: 'DATABASE_READ_FAILED' });
       return [];
     }
   }

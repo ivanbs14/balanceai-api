@@ -7,10 +7,24 @@ import { AuthModule } from "./auth/auth.module";
 import { CardModule } from "./card/card.module";
 import { FixedCostModule } from "./fixed-cost/fixed-cost.module";
 import { AIFeedbackModule } from "./ai-feedback/ai-feedback.module";
+import { APP_FILTER } from "@nestjs/core";
+import { LoggingModule } from "./logging/logging.module";
+import { SafeExceptionFilter } from "./logging/safe-exception.filter";
 
 @Module({
-  imports: [TransationModule, UserModule, AuthModule, CardModule, FixedCostModule, AIFeedbackModule],
+  imports: [
+    LoggingModule,
+    TransationModule,
+    UserModule,
+    AuthModule,
+    CardModule,
+    FixedCostModule,
+    AIFeedbackModule,
+  ],
   controllers: [AppController],
-  providers: [AppService],
+  providers: [
+    AppService,
+    { provide: APP_FILTER, useClass: SafeExceptionFilter },
+  ],
 })
 export class AppModule {}

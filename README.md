@@ -43,6 +43,7 @@ FRONTEND_URLS=""
 # Optional
 PORT=4000
 NODE_ENV=development
+LOG_LEVEL=info
 ```
 
 Notes:
@@ -52,6 +53,23 @@ Notes:
 - `FRONTEND_URL` is used as the redirect target after Google login.
 - `FRONTEND_URLS` can include extra origins (comma-separated) for CORS.
 - Auth cookies are named `balance_auth`.
+- `LOG_LEVEL` accepts `error`, `warn`, `info`, or `debug`; the default is `info` in every environment. Invalid values also fall back to `info`.
+
+## Structured logs
+
+The API writes one JSON object per line to stdout in development and production. It uses `nestjs-pino@4.4.1`, `pino@9.14.0`, and `pino-http@10.5.0` with NestJS 10. Every event has an ISO `time`, string `level`, `event`, and `context`. Request events also have a generated UUID `requestId`; client supplied IDs are ignored.
+
+Each HTTP response emits one `http_request_completed` event with `method`, the route pattern in `path` (or `<unmatched>`), `statusCode`, and nonnegative `durationMs`. Responses 4xx use `warn`; 5xx use `error`; successful responses use `info`. HTTP completions and `server_started` are emitted at every configured level. Other events follow the `LOG_LEVEL` threshold: `debug` includes all events, `info` suppresses debug, `warn` suppresses info and debug, and `error` includes only errors.
+
+Example with fictitious values:
+
+```json
+{"time":"2026-10-05T12:00:00.000Z","level":"info","requestId":"8f2c0000-0000-4000-8000-000000000000","event":"http_request_completed","context":"HTTP","method":"GET","path":"/auth/me","statusCode":200,"durationMs":18}
+```
+
+To find all events for a request, copy its `requestId` from the completion event and filter collected stdout lines, for example: `jq -c 'select(.requestId == "8f2c0000-0000-4000-8000-000000000000")' api.log`. `event` can also filter feedback and Gemini events such as `feedback_cache_hit`, `feedback_generation_succeeded`, and `gemini_request_failed`.
+
+HTTP serialization permits only `requestId`, `method`, route pattern `path`, `statusCode`, `durationMs`, and a fixed `errorCode` for failures. Service events permit `event`, `context`, `requestId`, `attempt`, `delayMs`, `forceRegenerate`, and fixed `errorCode`; the bootstrap event also has `port`. The logger drops unlisted object fields. Headers, cookies, Authorization, query values, bodies, prompts, model responses, financial values, user IDs, email, document, and raw external error messages are not logged. Prisma query logging remains disabled. The known `getMonthlyTransactions` read failure still returns an empty list; it emits `feedback_transactions_read_failed` and is tracked separately under TECH-004.
 
 ## Installation
 
