@@ -252,7 +252,6 @@ describe('TransationController (e2e)', () => {
       installmentGroupId: 'group-1',
       paymentMethod: TransationPaymentMethod.CREDIT_CARD,
     });
-    prismaMock.transation.findMany.mockResolvedValue([{ id: 'tx-1' }, { id: 'tx-3' }]);
     prismaMock.transation.deleteMany.mockResolvedValue({ count: 2 });
 
     await request(app.getHttpServer())
@@ -264,5 +263,12 @@ describe('TransationController (e2e)', () => {
           preservedPaidCount: 1,
         });
       });
+    expect(prismaMock.transation.deleteMany).toHaveBeenCalledWith({
+      where: {
+        userId: 'user-1',
+        installmentGroupId: 'group-1',
+        paymentStatus: 'PENDING',
+      },
+    });
   });
 });

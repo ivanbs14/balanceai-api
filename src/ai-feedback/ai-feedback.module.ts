@@ -6,9 +6,10 @@ import { GeminiService } from './gemini.service';
 import { PrismaModule } from '../prisma-services/prisma.module';
 import { TransationModule } from '../transation/transation.module';
 import { AuthModule } from '../auth/auth.module';
+import { RateLimitModule } from '../security/rate-limit.module';
 
 @Module({
-  imports: [PrismaModule, TransationModule, AuthModule],
+  imports: [PrismaModule, TransationModule, AuthModule, RateLimitModule],
   controllers: [AIFeedbackController],
   providers: [AIFeedbackService, GeminiService],
   exports: [AIFeedbackService],

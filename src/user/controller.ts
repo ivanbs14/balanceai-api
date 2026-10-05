@@ -8,20 +8,29 @@ import {
   Delete,
   UseGuards,
   ParseUUIDPipe,
+  Req,
 } from "@nestjs/common";
+import { Request } from "express";
 import { CreateUserDto } from "./dto/create.dto";
 import { UserService } from "./service";
 import { UpdateUserDto } from "./dto/updated.dto";
 import { CookieAuthGuard } from "../auth/cookie-auth.guard";
 import { CurrentUser } from "../auth/current-user.decorator";
 import { AuthPayload } from "../auth/auth.types";
+import { RateLimitService } from "../security/rate-limit.service";
 
 @Controller("user")
 export class UserController {
-  constructor(private readonly userService: UserService) {}
+  constructor(
+    private readonly userService: UserService,
+    private readonly rateLimit: RateLimitService,
+  ) {}
 
   @Post()
-  async create(@Body() data: CreateUserDto) {
+  async create(@Body() data: CreateUserDto, @Req() request: Request) {
+    this.rateLimit.checkRegistration(
+      request.ip || request.socket.remoteAddress || "unknown",
+    );
     const { name, document, email, password } = data;
     return this.userService.create(name, document, email, password);
   }

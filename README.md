@@ -39,6 +39,9 @@ GOOGLE_CLIENT_SECRET=""
 GOOGLE_REDIRECT_URI="http://localhost:4000/auth/google/callback"
 FRONTEND_URL="http://localhost:3000"
 FRONTEND_URLS=""
+TRUST_PROXY_HOPS=0
+GEMINI_API_KEY="replace-with-a-google-ai-studio-key"
+GEMINI_MODEL="gemini-3.6-flash"
 
 # Optional
 PORT=4000
@@ -52,6 +55,8 @@ Notes:
 - `JWT_SECRET` is required by the `JwtModule`.
 - `FRONTEND_URL` is used as the redirect target after Google login.
 - `FRONTEND_URLS` can include extra origins (comma-separated) for CORS.
+- `TRUST_PROXY_HOPS` controls how many trusted reverse proxy hops Express uses for client IPs; keep `0` when the API is exposed directly and set the actual hop count behind a trusted proxy.
+- `GEMINI_API_KEY` is currently required at startup. `GEMINI_MODEL` defaults to `gemini-3.6-flash`; generation uses the current `@google/genai` SDK and has a 10-second total retry budget. A working provider call still needs validation with a configured key.
 - Auth cookies are named `balance_auth`.
 - `LOG_LEVEL` accepts `error`, `warn`, `info`, or `debug`; the default is `info` in every environment. Invalid values also fall back to `info`.
 
@@ -170,16 +175,16 @@ Keep `NODE_ENV=production` in runtime.
 The deploy start command runs `prisma migrate deploy` before booting the API, so
 the runtime database stays aligned with committed Prisma migrations.
 
-## CORS
+## Browser origin checks and request limits
 
-The app currently allows credentials and these frontend origins:
+Credentialed browser requests allow these frontend origins in production:
 
-- `http://localhost:3000`
-- `http://localhost:3001`
 - `https://balance-2olb8gbo5-ivan-barbosas-projects.vercel.app`
 - `https://balance-neon.vercel.app`
 
-Additionally, origins from `FRONTEND_URL` and `FRONTEND_URLS` (comma-separated) are also allowed.
+Development also allows `http://localhost:3000` and `http://localhost:3001`. Origins from `FRONTEND_URL` and `FRONTEND_URLS` (comma-separated) are allowed in both environments. The API rejects unsafe requests with an unrecognized `Origin` or `Referer`, or cross-site Fetch Metadata. Cookie-authenticated mutations without origin evidence also receive 403; API clients using the session cookie should send an allowed `Origin` header. OAuth callback uses GET with a state cookie and is unaffected.
+
+Login is limited to 30 attempts per IP and 8 per normalized email in 15 minutes; registration to 6 per IP per hour; OAuth start and callback to 15 per IP in 15 minutes; AI generation to 30 per IP and 8 per user per hour, with 3 forced regenerations per user per hour. Excess attempts return 429. Set `TRUST_PROXY_HOPS` to the deployment's real proxy count for accurate per-IP limits. The counters live in each API process and reset on restart; a deployment with multiple replicas needs a shared limiter to enforce the same limits globally. The API accepts at most 24 installments on creation and group edits.
 
 ## Available Scripts
 

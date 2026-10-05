@@ -6,6 +6,7 @@ import {
   IsDateString,
   ValidateIf,
   IsInt,
+  Max,
   Min,
   IsOptional,
   IsBoolean,
@@ -57,10 +58,11 @@ export class CreateTransationDto {
   @ValidateIf(
     (o) =>
       o.paymentMethod === TransationPaymentMethod.CREDIT_CARD ||
-      (o.paymentMethod === TransationPaymentMethod.PIX && o.installments !== undefined),
+      o.installments !== undefined,
   )
   @IsInt({ message: 'A quantidade de parcelas deve ser um número inteiro' })
   @Min(1, { message: 'A quantidade mínima de parcelas é 1' })
+  @Max(24, { message: 'A quantidade máxima de parcelas é 24' })
   installments?: number;
 
   @IsOptional()

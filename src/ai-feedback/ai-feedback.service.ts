@@ -67,16 +67,21 @@ export class AIFeedbackService {
     const analysis = await this.geminiService.generateFinancialAnalysis(prompt);
     const modelName = this.geminiService.getModelName();
 
-    // Delete existing feedback if any
-    await this.prisma.aIFeedback.deleteMany({
-      where: { userId, competence },
-    });
-
-    // Save feedback to database
-    const feedback = await this.prisma.aIFeedback.create({
-      data: {
+    // Replace only after successful generation, in one database mutation.
+    const feedback = await this.prisma.aIFeedback.upsert({
+      where: { userId_competence: { userId, competence } },
+      create: {
         userId,
         competence,
+        totalIncome: metrics.totalIncome,
+        totalExpense: metrics.totalExpense,
+        totalInvestment: metrics.totalInvestment,
+        topCategory: metrics.topCategory,
+        topCategoryValue: metrics.topCategoryValue,
+        analysis,
+        model: modelName,
+      },
+      update: {
         totalIncome: metrics.totalIncome,
         totalExpense: metrics.totalExpense,
         totalInvestment: metrics.totalInvestment,

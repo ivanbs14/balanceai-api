@@ -180,6 +180,34 @@ describe("Transaction card ownership (HTTP, fake persistence)", () => {
     });
   });
 
+  it("rejects more than 24 installments before creating or editing a group", async () => {
+    await request(app.getHttpServer())
+      .post("/transations")
+      .set("Cookie", cookieA)
+      .send(expense({ installments: 25 }))
+      .expect(400);
+    await request(app.getHttpServer())
+      .post("/transations")
+      .set("Cookie", cookieA)
+      .send(
+        expense({ paymentMethod: "CASH", cardId: undefined, installments: 25 }),
+      )
+      .expect(400);
+    await request(app.getHttpServer())
+      .patch("/transations/missing/installment-group")
+      .set("Cookie", cookieA)
+      .send({
+        name: "Notebook",
+        amount: "120.00",
+        Date: "2026-10-02",
+        installments: 25,
+        paymentMethod: "PIX",
+      })
+      .expect(400);
+    expect(transactions).toHaveLength(0);
+    expect(prisma.transation.create).not.toHaveBeenCalled();
+  });
+
   it("rejects a foreign, unknown, or absent credit card before any write", async () => {
     const failures: { status: number; body: { message: string } }[] = [];
     for (const payload of [

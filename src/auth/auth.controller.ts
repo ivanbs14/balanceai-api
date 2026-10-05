@@ -16,6 +16,7 @@ import { CookieAuthGuard, AUTH_COOKIE_NAME } from "./cookie-auth.guard";
 import { CurrentUser } from "./current-user.decorator";
 import { AuthPayload } from "./auth.types";
 import { UserService } from "../user/service";
+import { RateLimitService } from "../security/rate-limit.service";
 
 const GOOGLE_OAUTH_STATE_COOKIE = "balance_google_oauth_state";
 const AUTH_COOKIE_MAX_AGE_SECONDS = 60 * 60 * 24 * 7;
@@ -124,10 +125,19 @@ export class AuthController {
   constructor(
     private readonly authService: AuthService,
     private readonly userService: UserService,
+    private readonly rateLimit: RateLimitService,
   ) {}
 
   @Post()
-  async login(@Body() loginDto: LoginDto, @Res({ passthrough: true }) res: Response) {
+  async login(
+    @Body() loginDto: LoginDto,
+    @Req() request: Request,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    this.rateLimit.checkLogin(
+      request.ip || request.socket.remoteAddress || "unknown",
+      loginDto.email,
+    );
     const user = await this.authService.validateUser(
       loginDto.email,
       loginDto.password,
@@ -142,9 +152,13 @@ export class AuthController {
   }
 
   @Get("google")
-  googleLogin(@Res() res: Response) {
+  googleLogin(@Req() request: Request, @Res() res: Response) {
+    this.rateLimit.checkOAuth(
+      request.ip || request.socket.remoteAddress || "unknown",
+    );
     const state = this.authService.generateOauthState();
-    const authorizationUrl = this.authService.buildGoogleAuthorizationUrl(state);
+    const authorizationUrl =
+      this.authService.buildGoogleAuthorizationUrl(state);
 
     res.setHeader("Set-Cookie", buildOauthStateCookie(state));
     return res.redirect(authorizationUrl);
@@ -157,6 +171,9 @@ export class AuthController {
     @Req() request: Request,
     @Res() res: Response,
   ) {
+    this.rateLimit.checkOAuth(
+      request.ip || request.socket.remoteAddress || "unknown",
+    );
     const expectedState = readCookieValue(
       request.headers.cookie,
       GOOGLE_OAUTH_STATE_COOKIE,
@@ -168,9 +185,8 @@ export class AuthController {
     }
 
     try {
-      const accessToken = await this.authService.exchangeGoogleCodeForAccessToken(
-        code,
-      );
+      const accessToken =
+        await this.authService.exchangeGoogleCodeForAccessToken(code);
       const profile = await this.authService.fetchGoogleProfile(accessToken);
 
       if (profile.email_verified === false) {

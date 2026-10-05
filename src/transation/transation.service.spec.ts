@@ -712,7 +712,6 @@ describe('TransationService', () => {
       installmentGroupId: 'group-1',
       paymentMethod: TransationPaymentMethod.CREDIT_CARD,
     });
-    prismaMock.transation.findMany.mockResolvedValue([{ id: 'tx-20' }, { id: 'tx-22' }]);
     prismaMock.transation.deleteMany.mockResolvedValue({ count: 2 });
 
     await expect(service.delete('tx-20', 'user-1')).resolves.toEqual({
@@ -720,20 +719,14 @@ describe('TransationService', () => {
       preservedPaidCount: 1,
     });
 
-    expect(prismaMock.transation.findMany).toHaveBeenCalledWith({
+    expect(prismaMock.transation.deleteMany).toHaveBeenCalledWith({
       where: {
+        userId: 'user-1',
         installmentGroupId: 'group-1',
         paymentStatus: TransationPaymentStatus.PENDING,
       },
-      select: { id: true },
     });
-    expect(prismaMock.transation.deleteMany).toHaveBeenCalledWith({
-      where: {
-        id: {
-          in: ['tx-20', 'tx-22'],
-        },
-      },
-    });
+    expect(prismaMock.transation.findMany).not.toHaveBeenCalled();
   });
 
   it('should delete only pending pix installments from the same group', async () => {
@@ -747,7 +740,6 @@ describe('TransationService', () => {
       installmentGroupId: 'pix-group-1',
       paymentMethod: TransationPaymentMethod.PIX,
     });
-    prismaMock.transation.findMany.mockResolvedValue([{ id: 'tx-pix-1' }, { id: 'tx-pix-2' }]);
     prismaMock.transation.deleteMany.mockResolvedValue({ count: 2 });
 
     await expect(service.delete('tx-pix-1', 'user-1')).resolves.toEqual({
@@ -755,12 +747,12 @@ describe('TransationService', () => {
       preservedPaidCount: 1,
     });
 
-    expect(prismaMock.transation.findMany).toHaveBeenCalledWith({
+    expect(prismaMock.transation.deleteMany).toHaveBeenCalledWith({
       where: {
+        userId: 'user-1',
         installmentGroupId: 'pix-group-1',
         paymentStatus: TransationPaymentStatus.PENDING,
       },
-      select: { id: true },
     });
   });
 
@@ -776,14 +768,59 @@ describe('TransationService', () => {
       installmentGroupId: 'group-2',
       paymentMethod: TransationPaymentMethod.CREDIT_CARD,
     });
-    prismaMock.transation.findMany.mockResolvedValue([]);
+    prismaMock.transation.deleteMany.mockResolvedValue({ count: 0 });
 
     await expect(service.delete('tx-30', 'user-1')).resolves.toEqual({
       deletedCount: 0,
       preservedPaidCount: 2,
     });
 
-    expect(prismaMock.transation.deleteMany).not.toHaveBeenCalled();
+    expect(prismaMock.transation.deleteMany).toHaveBeenCalledWith({
+      where: {
+        userId: 'user-1',
+        installmentGroupId: 'group-2',
+        paymentStatus: TransationPaymentStatus.PENDING,
+      },
+    });
+  });
+
+  it('should keep owner and pending status in the legacy installment deletion', async () => {
+    const createdAt = new Date('2026-06-08T12:00:00.000Z');
+    prismaMock.transation.findUnique.mockResolvedValue({
+      id: 'tx-legacy',
+      userId: 'user-1',
+      name: 'Notebook',
+      cardId: 'card-1',
+      amount: 50,
+      createdAt,
+      installments: 3,
+      installmentGroupId: null,
+      paymentMethod: TransationPaymentMethod.CREDIT_CARD,
+    });
+    prismaMock.transation.deleteMany.mockResolvedValue({ count: 2 });
+
+    await expect(service.delete('tx-legacy', 'user-1')).resolves.toEqual({
+      deletedCount: 2,
+      preservedPaidCount: 1,
+    });
+
+    expect(prismaMock.transation.deleteMany).toHaveBeenCalledWith({
+      where: {
+        userId: 'user-1',
+        installmentGroupId: null,
+        paymentMethod: TransationPaymentMethod.CREDIT_CARD,
+        name: 'Notebook',
+        cardId: 'card-1',
+        amount: 50,
+        installments: 3,
+        createdAt: {
+          gte: new Date(createdAt.getTime() - 60_000),
+          lte: new Date(createdAt.getTime() + 60_000),
+        },
+        paymentStatus: TransationPaymentStatus.PENDING,
+      },
+    });
+    expect(prismaMock.transation.findMany).not.toHaveBeenCalled();
   });
 
   it('should return only pending credit-card transactions for a selected card', async () => {

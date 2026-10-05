@@ -2,24 +2,17 @@ import { ValidationPipe } from "@nestjs/common";
 import { NestFactory } from "@nestjs/core";
 import { AppModule } from "./app.module";
 import { Logger } from "nestjs-pino";
+import { getBrowserOrigins } from "./security/browser-origins";
+import { csrfOriginMiddleware } from "./security/csrf.middleware";
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule, { bufferLogs: true });
   app.useLogger(app.get(Logger));
-  const envOrigins = [
-    process.env.FRONTEND_URL,
-    ...(process.env.FRONTEND_URLS?.split(",") ?? []),
-  ]
-    .map((origin) => origin?.trim())
-    .filter((origin): origin is string => Boolean(origin));
-
-  const allowedOrigins = [
-    "http://localhost:3000",
-    "http://localhost:3001",
-    "https://balance-2olb8gbo5-ivan-barbosas-projects.vercel.app",
-    "https://balance-neon.vercel.app",
-    ...envOrigins,
-  ].filter((origin, index, list) => list.indexOf(origin) === index);
+  const allowedOrigins = getBrowserOrigins();
+  const proxyHops = Number(process.env.TRUST_PROXY_HOPS ?? "0");
+  if (Number.isInteger(proxyHops) && proxyHops >= 1 && proxyHops <= 3) {
+    app.getHttpAdapter().getInstance().set("trust proxy", proxyHops);
+  }
 
   app.useGlobalPipes(
     new ValidationPipe({
@@ -34,6 +27,7 @@ async function bootstrap() {
     allowedHeaders: "Content-Type, Accept, Authorization",
     credentials: true,
   });
+  app.use(csrfOriginMiddleware(allowedOrigins));
 
   const PORT = process.env.PORT || 4000; // Usa a porta do Heroku ou 4000 para local
   await app.listen(PORT);
