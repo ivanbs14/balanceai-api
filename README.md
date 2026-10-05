@@ -272,6 +272,7 @@ This is a route-level overview based on the current controllers.
 - `GET /transations/card/:userId/:date`
 - `GET /transations/card-names/:userId`
 - `GET /transations/find-card/:nameCard`
+- `GET /transations/open-by-card/:nameCard` (somente despesas pendentes do cartão da sessão)
 - `GET /transations/:id`
 - `PUT /transations/:id`
 - `DELETE /transations/:id`

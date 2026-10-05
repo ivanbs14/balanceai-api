@@ -8,7 +8,7 @@ import {
 } from '@prisma/client';
 import { randomUUID } from 'crypto';
 import { PrismaService } from '../prisma-services/prisma.service';
-import { addMonths, format } from 'date-fns';
+import { addMonths } from 'date-fns';
 import { FixedCostService } from '../fixed-cost/fixed-cost.service';
 import { UpdateInstallmentGroupDto } from './dto/update-installment-group.dto';
 import { UpdateTransationPaymentStatusDto } from './dto/update-transation-payment-status.dto';
@@ -37,9 +37,9 @@ export class TransationService {
   }
 
   private getMonthIdFromDate(value: Date) {
-    // Usa timezone local para manter consistência com queries de data
-    // Evita bug onde parcelas que atravessam anos desaparecem devido à conversão UTC
-    return format(value, 'yyyy-MM');
+    // Datas civis enviadas como YYYY-MM-DD são persistidas em meia-noite UTC.
+    // O fuso local não deve deslocar o primeiro dia para o mês anterior.
+    return `${value.getUTCFullYear()}-${`${value.getUTCMonth() + 1}`.padStart(2, '0')}`;
   }
 
   private async getOwnedTransaction(id: string, userId: string) {
@@ -675,6 +675,7 @@ export class TransationService {
         userId,
         type: TransationType.EXPENSE,
         paymentMethod: TransationPaymentMethod.CREDIT_CARD,
+        paymentStatus: TransationPaymentStatus.PENDING,
       },
       orderBy: [
         { Date: 'asc' },

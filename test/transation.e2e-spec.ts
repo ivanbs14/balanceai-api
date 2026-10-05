@@ -124,11 +124,15 @@ describe('TransationController (e2e)', () => {
   });
 
   it('GET /transations/open-by-card/:nameCard should return only normalized pending card transactions', async () => {
-    prismaMock.transation.findMany.mockResolvedValue([
+    const rows = [
       { id: 'tx-pending', nameCard: 'Nubank', paymentStatus: 'PENDING' },
       { id: 'tx-pending-2', nameCard: ' nubank ', paymentStatus: 'PENDING' },
+      { id: 'tx-paid', nameCard: 'Nubank', paymentStatus: 'PAID' },
       { id: 'tx-other', nameCard: 'Inter', paymentStatus: 'PENDING' },
-    ]);
+    ];
+    prismaMock.transation.findMany.mockImplementation(({ where }) =>
+      Promise.resolve(rows.filter((row) => row.paymentStatus === where.paymentStatus)),
+    );
 
     await request(app.getHttpServer())
       .get('/transations/open-by-card/Nubank')
