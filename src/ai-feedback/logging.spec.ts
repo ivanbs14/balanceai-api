@@ -1,5 +1,4 @@
 import { HttpException } from "@nestjs/common";
-import { TransationType } from "@prisma/client";
 import { PinoLogger } from "nestjs-pino";
 import { AIFeedbackService } from "./ai-feedback.service";
 import { GeminiService } from "./gemini.service";
@@ -16,6 +15,23 @@ function fakeLogger() {
 }
 
 describe("AI logging privacy", () => {
+  it("starts without a Gemini key and returns a controlled unavailable state", async () => {
+    const previousKey = process.env.GEMINI_API_KEY;
+    delete process.env.GEMINI_API_KEY;
+    try {
+      const service = new GeminiService(fakeLogger() as unknown as PinoLogger);
+      await expect(
+        service.generateFinancialAnalysis("private-prompt"),
+      ).rejects.toMatchObject({
+        status: 503,
+        response: expect.objectContaining({ errorCode: "AI_NOT_CONFIGURED" }),
+      });
+    } finally {
+      if (previousKey === undefined) delete process.env.GEMINI_API_KEY;
+      else process.env.GEMINI_API_KEY = previousKey;
+    }
+  });
+
   it("emits named feedback events without account, period or financial values", async () => {
     const logger = fakeLogger();
     const prisma = {
@@ -30,12 +46,17 @@ describe("AI logging privacy", () => {
       },
     };
     const transactions = {
-      findAllTransactionsByUserIdAndMonth: jest.fn().mockResolvedValue([
-        { type: TransationType.DEPOSIT, amount: 10000 },
-        { type: TransationType.EXPENSE, amount: 2575, category: "FOOD" },
-      ]),
+      getAllBalance: jest.fn().mockResolvedValue({
+        totalValues: {
+          totalDeposits: 10000,
+          realizedExpenses: 2575,
+          investedPosition: 0,
+        },
+        topCategories: [{ category: "FOOD", value: 2575 }],
+      }),
     };
     const gemini = {
+      ensureConfigured: jest.fn(),
       generateFinancialAnalysis: jest
         .fn()
         .mockResolvedValue("private model response"),
@@ -104,11 +125,17 @@ describe("AI logging privacy", () => {
       },
     };
     const transactions = {
-      findAllTransactionsByUserIdAndMonth: jest
-        .fn()
-        .mockResolvedValue([{ type: TransationType.DEPOSIT, amount: 100 }]),
+      getAllBalance: jest.fn().mockResolvedValue({
+        totalValues: {
+          totalDeposits: 100,
+          realizedExpenses: 0,
+          investedPosition: 0,
+        },
+        topCategories: [],
+      }),
     };
     const gemini = {
+      ensureConfigured: jest.fn(),
       generateFinancialAnalysis: jest
         .fn()
         .mockRejectedValue(new Error("provider unavailable")),

@@ -21,6 +21,9 @@ describe('TransationService', () => {
     card: {
       findFirst: jest.fn(),
     },
+    fixedCostMonthly: {
+      aggregate: jest.fn(),
+    },
     $transaction: jest.fn(async (callback: any) => callback(prismaMock)),
   } as any;
 
@@ -32,6 +35,7 @@ describe('TransationService', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    prismaMock.transation.updateMany.mockResolvedValue({ count: 1 });
     service = new TransationService(prismaMock, fixedCostServiceMock);
   });
 
@@ -253,7 +257,7 @@ describe('TransationService', () => {
     );
   });
 
-  it('should include fixed costs in dashboard summary totals', async () => {
+  it('should return the unified summary without adding fixed costs twice', async () => {
     jest.spyOn(service, 'getAllBalance').mockResolvedValue({
       totalValues: {
         totalExpenses: 100,
@@ -291,16 +295,83 @@ describe('TransationService', () => {
     const result = await service.getDashboardMonthlyData('user-1', '2026-07');
 
     expect(result.summary.totalValues).toEqual({
-      totalExpenses: 160,
+      totalExpenses: 100,
       totalInvestments: 50,
       totalDeposits: 500,
-      balance: 290,
+      balance: 350,
     });
     expect(result.summary.percentsValues).toEqual({
-      expensePercentage: 32,
+      expensePercentage: 20,
       investmentPercentage: 10,
-      depositPercentage: 58,
+      depositPercentage: 70,
     });
+  });
+
+  it('separates available cash, invested position, paid expenses and forecasts', async () => {
+    prismaMock.transation.groupBy
+      .mockResolvedValueOnce([
+        { type: 'DEPOSIT', paymentStatus: 'PENDING', _sum: { amount: 1000 } },
+        { type: 'INVESTMENT', paymentStatus: 'PENDING', _sum: { amount: 200 } },
+        { type: 'EXPENSE', paymentStatus: 'PAID', _sum: { amount: 100 } },
+        { type: 'EXPENSE', paymentStatus: 'PENDING', _sum: { amount: 30 } },
+      ])
+      .mockResolvedValueOnce([{ category: 'FOOD', _sum: { amount: 100 }, _count: { id: 1 } }])
+      .mockResolvedValueOnce([
+        { type: 'DEPOSIT', paymentStatus: 'PENDING', _sum: { amount: 1000 } },
+        { type: 'INVESTMENT', paymentStatus: 'PENDING', _sum: { amount: 200 } },
+        { type: 'EXPENSE', paymentStatus: 'PAID', _sum: { amount: 100 } },
+      ])
+      .mockResolvedValueOnce([
+        { type: 'EXPENSE', paymentStatus: 'PAID', withdrawal: 'INVESTMENT', _sum: { amount: 100 } },
+        { type: 'EXPENSE', paymentStatus: 'PENDING', withdrawal: 'DEPOSIT', _sum: { amount: 30 } },
+      ])
+      .mockResolvedValueOnce([
+        { type: 'EXPENSE', paymentStatus: 'PAID', withdrawal: 'INVESTMENT', _sum: { amount: 100 } },
+      ]);
+    prismaMock.transation.findMany.mockResolvedValue([]);
+    prismaMock.fixedCostMonthly.aggregate.mockResolvedValue({ _sum: { amount: 50 } });
+    fixedCostServiceMock.findByUserIdAndMonth.mockResolvedValue({
+      data: [
+        { category: 'HOUSING', defaultAmount: 50, monthly: { amount: 50, status: 'PAID' } },
+        { category: 'UTILITY', defaultAmount: 25, monthly: { amount: 25, status: 'PENDING' } },
+      ],
+    });
+
+    const summary = await service.getAllBalance('user-1', '2026-07');
+
+    expect(summary.totalValues).toMatchObject({
+      totalDeposits: 1000,
+      totalExpenses: 150,
+      realizedExpenses: 150,
+      forecastExpenses: 55,
+      paidFixedCosts: 50,
+      pendingFixedCosts: 25,
+      totalInvestments: 100,
+      investedPosition: 100,
+      balance: 750,
+      projectedBalance: 695,
+    });
+    expect(summary.topCategories).toEqual([
+      { category: 'FOOD', percent: 66.7, value: 100 },
+      { category: 'HOUSING', percent: 33.3, value: 50 },
+    ]);
+    expect(summary.anualBalance[0].value).toBe(750);
+  });
+
+  it('uses all twelve competences for annual realized fixed costs', async () => {
+    prismaMock.transation.groupBy.mockResolvedValue([]);
+    prismaMock.transation.findMany.mockResolvedValue([]);
+    fixedCostServiceMock.findByUserIdAndMonth.mockResolvedValue({
+      data: [{ category: 'HOUSING', defaultAmount: 10, monthly: { amount: 10, status: 'PAID' } }],
+    });
+
+    const summary = await service.getAllBalance('user-1', '2026');
+
+    expect(fixedCostServiceMock.findByUserIdAndMonth).toHaveBeenCalledTimes(12);
+    expect(fixedCostServiceMock.findByUserIdAndMonth).toHaveBeenCalledWith('user-1', '2026-12');
+    expect(summary.totalValues).toMatchObject({ totalExpenses: 120, paidFixedCosts: 120, balance: -120 });
+    expect(summary.anualBalance[0].value).toBe(-120);
+    expect(prismaMock.fixedCostMonthly.aggregate).not.toHaveBeenCalled();
   });
 
   it('should update a non-installment pending transaction', async () => {
@@ -363,7 +434,7 @@ describe('TransationService', () => {
     ).rejects.toBeInstanceOf(BadRequestException);
   });
 
-  it('should edit an installment group and recalculate all parcels', async () => {
+  it('should edit pending installments without touching a paid parcel', async () => {
     prismaMock.transation.findUnique.mockResolvedValue({
       id: 'tx-group-1',
       userId: 'user-1',
@@ -425,19 +496,29 @@ describe('TransationService', () => {
     } as any);
 
     expect(prismaMock.$transaction).toHaveBeenCalled();
-    expect(prismaMock.transation.update).toHaveBeenCalledTimes(3);
+    expect(prismaMock.transation.updateMany).toHaveBeenCalledTimes(2);
     expect(
-      prismaMock.transation.update.mock.calls.map(([call]: any[]) => call.data.amount.toFixed(2)),
-    ).toEqual(['33.34', '33.33', '33.33']);
-    expect(prismaMock.transation.update).toHaveBeenNthCalledWith(
+      prismaMock.transation.updateMany.mock.calls.map(([call]: any[]) => call.data.amount.toFixed(2)),
+    ).toEqual(['33.34', '33.33']);
+    expect(prismaMock.transation.create).toHaveBeenCalledTimes(1);
+    expect(prismaMock.transation.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({ amount: expect.anything(), installmentInfo: '4/4' }),
+    });
+    expect(prismaMock.transation.updateMany.mock.calls.every(([call]: any[]) => call.where.id !== 'tx-group-1')).toBe(true);
+    expect(prismaMock.transation.updateMany).toHaveBeenNthCalledWith(
       1,
       expect.objectContaining({
-        where: { id: 'tx-group-1' },
+        where: {
+          id: 'tx-group-2',
+          userId: 'user-1',
+          installmentGroupId: 'group-1',
+          paymentStatus: TransationPaymentStatus.PENDING,
+        },
         data: expect.objectContaining({
           name: 'Notebook Pro',
           amount: expect.anything(),
-          installments: 3,
-          installmentInfo: '1/3',
+          installments: 4,
+          installmentInfo: '2/4',
           paymentMethod: TransationPaymentMethod.PIX,
           cardId: null,
           nameCard: null,
@@ -445,16 +526,76 @@ describe('TransationService', () => {
         }),
       }),
     );
-    expect(prismaMock.transation.update).toHaveBeenNthCalledWith(
-      3,
+    expect(prismaMock.transation.updateMany).toHaveBeenNthCalledWith(
+      2,
       expect.objectContaining({
-        where: { id: 'tx-group-3' },
+        where: {
+          id: 'tx-group-3',
+          userId: 'user-1',
+          installmentGroupId: 'group-1',
+          paymentStatus: TransationPaymentStatus.PENDING,
+        },
         data: expect.objectContaining({
-          installmentInfo: '3/3',
-          Date: new Date('2026-12-05T00:00:00.000Z'),
+          installmentInfo: '3/4',
+          Date: new Date('2026-11-05T00:00:00.000Z'),
         }),
       }),
     );
+  });
+
+  it('summarizes only the pending amount and rejects editing a fully paid group', async () => {
+    prismaMock.transation.findUnique.mockResolvedValue({
+      id: 'paid-1', userId: 'user-1', paymentMethod: TransationPaymentMethod.PIX,
+      installments: 3, installmentGroupId: 'group-summary',
+    });
+    const paid = {
+      id: 'paid-1', name: 'Old name', amount: 40, paymentStatus: TransationPaymentStatus.PAID,
+      installments: 3, installmentInfo: '1/3', Date: new Date('2026-07-01T00:00:00.000Z'),
+    };
+    prismaMock.transation.findMany.mockResolvedValueOnce([
+      paid,
+      {
+        id: 'pending-2', name: 'New name', amount: 30, paymentStatus: TransationPaymentStatus.PENDING,
+        installments: 3, installmentInfo: '2/3', Date: new Date('2026-08-01T00:00:00.000Z'),
+        paymentMethod: TransationPaymentMethod.PIX, cardId: null, nameCard: null,
+      },
+      {
+        id: 'pending-3', name: 'New name', amount: 30, paymentStatus: TransationPaymentStatus.PENDING,
+        installments: 3, installmentInfo: '3/3', Date: new Date('2026-09-01T00:00:00.000Z'),
+      },
+    ]).mockResolvedValueOnce([paid]);
+
+    await expect(service.getInstallmentGroupSummary('paid-1', 'user-1')).resolves.toMatchObject({
+      name: 'New name', totalAmount: '60.00', startDate: '2026-08-01',
+      installments: 2, paidInstallments: 1,
+    });
+    await expect(service.getInstallmentGroupSummary('paid-1', 'user-1')).rejects.toMatchObject({ status: 409 });
+  });
+
+  it('aborts editing if a pending installment becomes paid before its update', async () => {
+    prismaMock.transation.findUnique.mockResolvedValue({
+      id: 'tx-race-1', userId: 'user-1', type: 'EXPENSE', category: 'OTHER',
+      paymentMethod: TransationPaymentMethod.PIX, installments: 2,
+      installmentGroupId: 'group-race', withdrawal: 'DEPOSIT', isFixed: false,
+    });
+    prismaMock.transation.findMany.mockResolvedValueOnce([
+      {
+        id: 'tx-race-1', userId: 'user-1', paymentStatus: TransationPaymentStatus.PENDING,
+        installmentInfo: '1/2', Date: new Date('2026-07-01T00:00:00.000Z'),
+      },
+      {
+        id: 'tx-race-2', userId: 'user-1', paymentStatus: TransationPaymentStatus.PENDING,
+        installmentInfo: '2/2', Date: new Date('2026-08-01T00:00:00.000Z'),
+      },
+    ]);
+    prismaMock.transation.updateMany.mockResolvedValueOnce({ count: 0 });
+
+    await expect(service.updateInstallmentGroup('tx-race-1', 'user-1', {
+      name: 'Changed', amount: '100.00', Date: '2026-10-01', installments: 2,
+      paymentMethod: TransationPaymentMethod.PIX,
+    } as any)).rejects.toMatchObject({ status: 409 });
+    expect(prismaMock.transation.create).not.toHaveBeenCalled();
+    expect(prismaMock.transation.deleteMany).not.toHaveBeenCalled();
   });
 
   it('should reject grouped editing for non-installment transactions', async () => {
@@ -540,12 +681,19 @@ describe('TransationService', () => {
     expect(prismaMock.card.findFirst).toHaveBeenCalledWith({
       where: { id: 'card-1', userId: 'user-1' },
     });
-    expect(prismaMock.transation.create).toHaveBeenCalledTimes(2);
+    expect(prismaMock.transation.updateMany).toHaveBeenCalledTimes(1);
+    expect(prismaMock.transation.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ id: 'tx-card-2', paymentStatus: TransationPaymentStatus.PENDING }),
+        data: expect.objectContaining({ installmentInfo: '2/5' }),
+      }),
+    );
+    expect(prismaMock.transation.create).toHaveBeenCalledTimes(3);
     expect(prismaMock.transation.create).toHaveBeenNthCalledWith(
       1,
       expect.objectContaining({
         data: expect.objectContaining({
-          installmentInfo: '3/4',
+          installmentInfo: '3/5',
           cardId: 'card-1',
           nameCard: 'Nubank',
           paymentMethod: TransationPaymentMethod.CREDIT_CARD,
@@ -570,6 +718,7 @@ describe('TransationService', () => {
       .mockResolvedValueOnce([
         {
           id: 'tx-pix-1',
+          paymentStatus: TransationPaymentStatus.PENDING,
           installmentInfo: '1/4',
           userId: 'user-1',
           installmentGroupId: 'pix-group',
@@ -578,6 +727,7 @@ describe('TransationService', () => {
         },
         {
           id: 'tx-pix-2',
+          paymentStatus: TransationPaymentStatus.PENDING,
           installmentInfo: '2/4',
           userId: 'user-1',
           installmentGroupId: 'pix-group',
@@ -586,6 +736,7 @@ describe('TransationService', () => {
         },
         {
           id: 'tx-pix-3',
+          paymentStatus: TransationPaymentStatus.PENDING,
           installmentInfo: '3/4',
           userId: 'user-1',
           installmentGroupId: 'pix-group',
@@ -594,6 +745,7 @@ describe('TransationService', () => {
         },
         {
           id: 'tx-pix-4',
+          paymentStatus: TransationPaymentStatus.PENDING,
           installmentInfo: '4/4',
           userId: 'user-1',
           installmentGroupId: 'pix-group',
@@ -617,6 +769,9 @@ describe('TransationService', () => {
 
     expect(prismaMock.transation.deleteMany).toHaveBeenCalledWith({
       where: {
+        userId: 'user-1',
+        installmentGroupId: 'pix-group',
+        paymentStatus: TransationPaymentStatus.PENDING,
         id: {
           in: ['tx-pix-3', 'tx-pix-4'],
         },
@@ -640,6 +795,7 @@ describe('TransationService', () => {
       .mockResolvedValueOnce([
         {
           id: 'tx-switch-1',
+          paymentStatus: TransationPaymentStatus.PENDING,
           installmentInfo: '1/2',
           userId: 'user-1',
           installmentGroupId: 'group-switch',
@@ -648,6 +804,7 @@ describe('TransationService', () => {
         },
         {
           id: 'tx-switch-2',
+          paymentStatus: TransationPaymentStatus.PENDING,
           installmentInfo: '2/2',
           userId: 'user-1',
           installmentGroupId: 'group-switch',
@@ -668,9 +825,9 @@ describe('TransationService', () => {
       paymentMethod: TransationPaymentMethod.PIX,
     } as any);
 
-    expect(prismaMock.transation.update).toHaveBeenCalledWith(
+    expect(prismaMock.transation.updateMany).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: { id: 'tx-switch-1' },
+        where: expect.objectContaining({ id: 'tx-switch-1' }),
         data: expect.objectContaining({
           paymentMethod: TransationPaymentMethod.PIX,
           cardId: null,

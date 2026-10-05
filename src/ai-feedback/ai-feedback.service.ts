@@ -1,10 +1,9 @@
 /* eslint-disable prettier/prettier */
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, ServiceUnavailableException } from '@nestjs/common';
 import { PinoLogger } from 'nestjs-pino';
 import { PrismaService } from '../prisma-services/prisma.service';
 import { GeminiService } from './gemini.service';
 import { TransationService } from '../transation/transation.service';
-import { TransationType } from '@prisma/client';
 import { AIFeedbackResponseDto } from './dto/ai-feedback-response.dto';
 
 @Injectable()
@@ -44,16 +43,28 @@ export class AIFeedbackService {
       this.logger.info({ event: 'feedback_cache_bypassed' });
     }
 
-    // Get transactions for the month
-    const transactions = await this.getMonthlyTransactions(userId, competence);
+    this.geminiService.ensureConfigured();
 
-    if (transactions.length === 0) {
-      this.logger.warn({ event: 'feedback_generation_failed', errorCode: 'NO_TRANSACTIONS' });
-      throw new NotFoundException('Não há transações para o período selecionado');
+    let summary: Awaited<ReturnType<TransationService['getAllBalance']>>;
+    try {
+      summary = await this.transationService.getAllBalance(userId, competence);
+    } catch {
+      this.logger.error({ event: 'feedback_summary_read_failed', errorCode: 'DATABASE_READ_FAILED' });
+      throw new ServiceUnavailableException('Não foi possível consultar os dados financeiros.');
     }
+    const topCategory = summary.topCategories[0];
+    const metrics = {
+      totalIncome: Number(summary.totalValues.totalDeposits),
+      totalExpense: Number(summary.totalValues.realizedExpenses),
+      totalInvestment: Number(summary.totalValues.investedPosition),
+      topCategory: topCategory?.category ?? null,
+      topCategoryValue: topCategory?.value ?? null,
+    };
 
-    // Calculate metrics
-    const metrics = this.calculateMetrics(transactions);
+    if (metrics.totalIncome === 0 && metrics.totalExpense === 0 && metrics.totalInvestment === 0) {
+      this.logger.warn({ event: 'feedback_generation_failed', errorCode: 'NO_TRANSACTIONS' });
+      throw new NotFoundException('Não há lançamentos realizados para o período selecionado');
+    }
 
     if (metrics.totalIncome === 0) {
       this.logger.warn({ event: 'feedback_generation_failed', errorCode: 'NO_INCOME' });
@@ -111,60 +122,6 @@ export class AIFeedbackService {
     }
 
     return this.mapToDto(feedback);
-  }
-
-  private async getMonthlyTransactions(userId: string, competence: string) {
-    try {
-      const dashboardData = await this.transationService['findAllTransactionsByUserIdAndMonth'](
-        userId,
-        competence,
-      );
-      return dashboardData;
-    } catch {
-      this.logger.error({ event: 'feedback_transactions_read_failed', errorCode: 'DATABASE_READ_FAILED' });
-      return [];
-    }
-  }
-
-  private calculateMetrics(transactions: any[]) {
-    let totalIncome = 0;
-    let totalExpense = 0;
-    let totalInvestment = 0;
-    const categoryExpenses: Record<string, number> = {};
-
-    for (const transaction of transactions) {
-      const amount = Number(transaction.amount);
-
-      if (transaction.type === TransationType.DEPOSIT) {
-        totalIncome += amount;
-      } else if (transaction.type === TransationType.EXPENSE) {
-        totalExpense += amount;
-        
-        const category = transaction.category || 'OTHER';
-        categoryExpenses[category] = (categoryExpenses[category] || 0) + amount;
-      } else if (transaction.type === TransationType.INVESTMENT) {
-        totalInvestment += amount;
-      }
-    }
-
-    // Find top expense category
-    let topCategory: string | null = null;
-    let topCategoryValue: number | null = null;
-
-    for (const [category, value] of Object.entries(categoryExpenses)) {
-      if (topCategoryValue === null || value > topCategoryValue) {
-        topCategory = category;
-        topCategoryValue = value;
-      }
-    }
-
-    return {
-      totalIncome,
-      totalExpense,
-      totalInvestment,
-      topCategory,
-      topCategoryValue,
-    };
   }
 
   private buildAnalysisPrompt(metrics: any, competence: string): string {

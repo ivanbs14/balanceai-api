@@ -6,16 +6,13 @@ const GENERATION_TIMEOUT_MS = 10_000;
 
 @Injectable()
 export class GeminiService {
-  private readonly genAI: GoogleGenAI;
+  private readonly genAI: GoogleGenAI | null;
   private readonly model: string;
 
   constructor(private readonly logger: PinoLogger) {
     this.logger.setContext(GeminiService.name);
     const apiKey = process.env.GEMINI_API_KEY?.trim();
-    if (!apiKey) {
-      throw new Error("GEMINI_API_KEY environment variable is not set");
-    }
-    this.genAI = new GoogleGenAI({ apiKey });
+    this.genAI = apiKey ? new GoogleGenAI({ apiKey }) : null;
     this.model = process.env.GEMINI_MODEL?.trim() || "gemini-3.6-flash";
   }
 
@@ -30,7 +27,21 @@ export class GeminiService {
     return match ? Math.ceil(Number(match[1])) : null;
   }
 
+  ensureConfigured(): void {
+    if (!this.genAI) {
+      throw new HttpException(
+        {
+          statusCode: HttpStatus.SERVICE_UNAVAILABLE,
+          message: "A análise por IA está indisponível neste ambiente.",
+          errorCode: "AI_NOT_CONFIGURED",
+        },
+        HttpStatus.SERVICE_UNAVAILABLE,
+      );
+    }
+  }
+
   async generateFinancialAnalysis(prompt: string): Promise<string> {
+    this.ensureConfigured();
     const deadline = Date.now() + GENERATION_TIMEOUT_MS;
 
     for (let attempt = 1; attempt <= 3; attempt += 1) {
@@ -39,7 +50,7 @@ export class GeminiService {
 
       try {
         this.logger.info({ event: "gemini_request_started", attempt });
-        const response = await this.genAI.models.generateContent({
+        const response = await this.genAI!.models.generateContent({
           model: this.model,
           contents: prompt,
           config: { httpOptions: { timeout: remainingMs } },

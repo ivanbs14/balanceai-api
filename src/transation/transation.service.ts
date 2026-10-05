@@ -1,7 +1,8 @@
 /* eslint-disable prettier/prettier */
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import {
   Prisma,
+  FixedCostMonthlyStatus,
   TransationPaymentMethod,
   TransationPaymentStatus,
   TransationType,
@@ -195,7 +196,14 @@ export class TransationService {
       throw new NotFoundException('Grupo parcelado não encontrado.');
     }
 
-    const orderedGroup = [...group].sort((left, right) => {
+    const pending = group.filter(
+      (installment) => installment.paymentStatus === TransationPaymentStatus.PENDING,
+    );
+    if (pending.length === 0) {
+      throw new ConflictException('Não há parcelas pendentes para editar neste grupo.');
+    }
+
+    const orderedGroup = [...pending].sort((left, right) => {
       const sequenceDifference = this.getInstallmentSequence(left) - this.getInstallmentSequence(right);
       return sequenceDifference || left.Date.getTime() - right.Date.getTime();
     });
@@ -209,7 +217,8 @@ export class TransationService {
       name: first.name,
       totalAmount: total.toFixed(2),
       startDate: first.Date.toISOString().slice(0, 10),
-      installments: first.installments,
+      installments: pending.length,
+      paidInstallments: group.length - pending.length,
       paymentMethod: first.paymentMethod,
       cardId: first.cardId,
       cardName: first.nameCard,
@@ -399,41 +408,6 @@ export class TransationService {
     return transactions;
   }
 
-  private mergeFixedCostsIntoDashboardSummary(
-    summary: Awaited<ReturnType<TransationService['getAllBalance']>>,
-    fixedCosts: Awaited<ReturnType<FixedCostService['findByUserIdAndMonth']>>,
-  ) {
-    const fixedCostsTotal = (fixedCosts.data ?? []).reduce((total, fixedCost) => {
-      const amount = Number(fixedCost.monthly?.amount ?? fixedCost.defaultAmount ?? 0);
-      return total + amount;
-    }, 0);
-
-    const totalDeposits = Number(summary.totalValues?.totalDeposits ?? 0);
-    const totalInvestments = Number(summary.totalValues?.totalInvestments ?? 0);
-    const totalExpenses = Number(summary.totalValues?.totalExpenses ?? 0) + fixedCostsTotal;
-    const balance = totalDeposits - (totalExpenses + totalInvestments);
-
-    const calculatePercentage = (value: number, total: number) =>
-      total ? Math.round((value / total) * 1000) / 10 : 0;
-
-    const totalTransactionsAmount = totalDeposits - totalInvestments - totalExpenses;
-
-    return {
-      ...summary,
-      totalValues: {
-        ...summary.totalValues,
-        totalExpenses,
-        balance,
-      },
-      percentsValues: {
-        ...summary.percentsValues,
-        expensePercentage: calculatePercentage(totalExpenses, totalDeposits),
-        investmentPercentage: calculatePercentage(totalInvestments, totalDeposits),
-        depositPercentage: calculatePercentage(totalTransactionsAmount, totalDeposits),
-      },
-    };
-  }
-
   async getDashboardMonthlyData(userId: string, month: string) {
     const [summary, fixedCosts, transactions, creditCard] = await Promise.all([
       this.getAllBalance(userId, month),
@@ -443,7 +417,7 @@ export class TransationService {
     ]);
 
     return {
-      summary: this.mergeFixedCostsIntoDashboardSummary(summary, fixedCosts),
+      summary,
       fixedCosts,
       transactions,
       creditCard,
@@ -498,7 +472,20 @@ export class TransationService {
         throw new NotFoundException('Grupo parcelado não encontrado.');
       }
 
-      const orderedGroup = [...group].sort((left, right) => {
+      const paid = group.filter(
+        (installment) => installment.paymentStatus === TransationPaymentStatus.PAID,
+      );
+      const pending = group.filter(
+        (installment) => installment.paymentStatus === TransationPaymentStatus.PENDING,
+      );
+      if (pending.length === 0) {
+        throw new ConflictException('Não há parcelas pendentes para editar neste grupo.');
+      }
+      if (paid.length === 0 && data.installments < 2) {
+        throw new BadRequestException('Um grupo parcelado sem pagamentos exige ao menos duas parcelas.');
+      }
+
+      const orderedGroup = [...pending].sort((left, right) => {
         const leftSequence = this.getInstallmentSequence(left);
         const rightSequence = this.getInstallmentSequence(right);
 
@@ -509,23 +496,43 @@ export class TransationService {
         return left.Date.getTime() - right.Date.getTime();
       });
 
+      const totalInstallments = paid.length + data.installments;
+      if (totalInstallments > 24) {
+        throw new BadRequestException('O grupo pode ter no máximo 24 parcelas no total.');
+      }
+      const paidSequences = paid.map((installment) => this.getInstallmentSequence(installment));
+      const occupiedSequences = new Set(paidSequences);
+      if (
+        occupiedSequences.size !== paid.length ||
+        paidSequences.some((sequence) => sequence > totalInstallments)
+      ) {
+        throw new BadRequestException(
+          'A quantidade informada conflita com a numeração das parcelas pagas.',
+        );
+      }
+      const pendingSequences = Array.from(
+        { length: totalInstallments },
+        (_, index) => index + 1,
+      ).filter((sequence) => !occupiedSequences.has(sequence));
+
+      const template = orderedGroup[0];
       const baseTransaction: Prisma.TransationUncheckedCreateInput = {
         userId,
         name: data.name,
-        type: anchorTransaction.type,
+        type: template.type,
         amount: data.amount,
-        category: anchorTransaction.category,
+        category: template.category,
         paymentMethod: data.paymentMethod,
         paymentStatus: TransationPaymentStatus.PENDING,
         paidAt: null,
-        isFixed: anchorTransaction.isFixed,
-        installments: data.installments,
+        isFixed: template.isFixed,
+        installments: totalInstallments,
         installmentInfo: null,
         installmentGroupId: anchorTransaction.installmentGroupId,
         nameCard: cardData.nameCard,
         cardId: cardData.cardId,
         Date: startDate,
-        withdrawal: anchorTransaction.withdrawal,
+        withdrawal: template.withdrawal,
       };
 
       const recalculatedEntries = this.buildInstallmentGroupEntries(
@@ -533,46 +540,55 @@ export class TransationService {
         startDate,
         data.installments,
         data.amount,
-      );
+      ).map((entry, index) => ({
+        ...entry,
+        installments: totalInstallments,
+        installmentInfo: `${pendingSequences[index]}/${totalInstallments}`,
+      }));
 
-      const updates = orderedGroup
-        .slice(0, recalculatedEntries.length)
-        .map((transaction, index) =>
-          tx.transation.update({
-            where: { id: transaction.id },
-            data: {
-              name: recalculatedEntries[index].name,
-              amount: recalculatedEntries[index].amount,
-              Date: recalculatedEntries[index].Date,
-              installments: recalculatedEntries[index].installments,
-              installmentInfo: recalculatedEntries[index].installmentInfo,
-              paymentMethod: recalculatedEntries[index].paymentMethod,
-              cardId: recalculatedEntries[index].cardId,
-              nameCard: recalculatedEntries[index].nameCard,
-            },
-          }),
-        );
-
-      const creates = recalculatedEntries
-        .slice(orderedGroup.length)
-        .map((entry) =>
-          tx.transation.create({
-            data: entry,
-          }),
-        );
+      for (const [index, transaction] of orderedGroup.slice(0, recalculatedEntries.length).entries()) {
+        const entry = recalculatedEntries[index];
+        const updated = await tx.transation.updateMany({
+          where: {
+            id: transaction.id,
+            userId,
+            installmentGroupId: anchorTransaction.installmentGroupId,
+            paymentStatus: TransationPaymentStatus.PENDING,
+          },
+          data: {
+            name: entry.name,
+            amount: entry.amount,
+            Date: entry.Date,
+            installments: entry.installments,
+            installmentInfo: entry.installmentInfo,
+            paymentMethod: entry.paymentMethod,
+            cardId: entry.cardId,
+            nameCard: entry.nameCard,
+          },
+        });
+        if (updated.count !== 1) {
+          throw new ConflictException('Uma parcela foi paga durante a edição. Recarregue o grupo.');
+        }
+      }
 
       const trailingInstallments = orderedGroup.slice(recalculatedEntries.length);
       if (trailingInstallments.length > 0) {
-        await tx.transation.deleteMany({
+        const deleted = await tx.transation.deleteMany({
           where: {
-            id: {
-              in: trailingInstallments.map((transaction) => transaction.id),
-            },
+            id: { in: trailingInstallments.map((transaction) => transaction.id) },
+            userId,
+            installmentGroupId: anchorTransaction.installmentGroupId,
+            paymentStatus: TransationPaymentStatus.PENDING,
           },
         });
+        if (deleted.count !== trailingInstallments.length) {
+          throw new ConflictException('Uma parcela foi paga durante a edição. Recarregue o grupo.');
+        }
       }
 
-      await Promise.all([...updates, ...creates]);
+      for (const entry of recalculatedEntries.slice(orderedGroup.length)) {
+        await tx.transation.create({ data: entry });
+      }
 
       return tx.transation.findMany({
         where: {
@@ -766,28 +782,27 @@ export class TransationService {
   
     const [
       transactionAggregates,
-      totalTransactionsCount,
       categoryAggregates,
       lastTransactions,
       annualAggregates,
       withdrawalAggregates,
-      annualWithdrawalAggregates, // NOVO
+      annualWithdrawalAggregates,
     ] = await Promise.all([
       this.prisma.transation.groupBy({
-        by: ['type'],
+        by: ['type', 'paymentStatus'],
         _sum: { amount: true },
-        where: { userId, Date: { gte: startDate, lt: endDate } },
-      }),
-      this.prisma.transation.count({
         where: { userId, Date: { gte: startDate, lt: endDate } },
       }),
       this.prisma.transation.groupBy({
         by: ['category'],
         _sum: { amount: true },
         _count: { id: true },
-        where: { userId, Date: { gte: startDate, lt: endDate } },
-        orderBy: { _count: { id: 'desc' } },
-        take: 4,
+        where: {
+          userId,
+          type: TransationType.EXPENSE,
+          paymentStatus: TransationPaymentStatus.PAID,
+          Date: { gte: startDate, lt: endDate },
+        },
       }),
       this.prisma.transation.findMany({
         where: { userId, Date: { gte: startDate, lt: endDate } },
@@ -796,79 +811,120 @@ export class TransationService {
         select: { id: true, category: true, amount: true, type: true, Date: true, name: true },
       }),
       this.prisma.transation.groupBy({
-        by: ['type'],
+        by: ['type', 'paymentStatus'],
         _sum: { amount: true },
         where: { userId, Date: { gte: startOfYear, lt: endOfYear } },
       }),
       this.prisma.transation.groupBy({
-        by: ['type', 'withdrawal'],
+        by: ['type', 'withdrawal', 'paymentStatus'],
         _sum: { amount: true },
         where: { userId, Date: { gte: startDate, lt: endDate } },
       }),
-      this.prisma.transation.groupBy({ // NOVO: agregação anual por tipo + withdrawal
-        by: ['type', 'withdrawal'],
+      this.prisma.transation.groupBy({
+        by: ['type', 'withdrawal', 'paymentStatus'],
         _sum: { amount: true },
         where: { userId, Date: { gte: startOfYear, lt: endOfYear } },
       }),
     ]);
   
-    const getSumWithWithdrawal = (
-      list: (Prisma.PickEnumerable<Prisma.TransationGroupByOutputType, ['type', 'withdrawal']> & {
-        _sum: { amount: Prisma.Decimal };
-      })[],
-      type: string,
-      withdrawal: string
-    ) =>
-      list.find(t => t.type === type && t.withdrawal === withdrawal)?._sum.amount.toNumber() || 0;
-  
-    const getSum = (list: typeof transactionAggregates, type: string) =>
-      Number(list.find(t => t.type === type)?._sum.amount) || 0;
-  
-    /* const totalExpensesDeposits = getSumWithWithdrawal(withdrawalAggregates, 'EXPENSE', 'DEPOSIT'); */
-    const totalExpensesInvestments = getSumWithWithdrawal(withdrawalAggregates, 'EXPENSE', 'INVESTMENT');
-    const totalExpenses = getSum(transactionAggregates, 'EXPENSE');
-    const totalInvestmentsByBalance = getSum(transactionAggregates, 'INVESTMENT');
-    const totalInvestments = getSum(transactionAggregates, 'INVESTMENT') - totalExpensesInvestments;
-    const totalDeposits = getSum(transactionAggregates, 'DEPOSIT');
-  
-    const totalTransactionsAmount = totalDeposits - totalInvestments - totalExpenses;
-    const balance = totalDeposits - (totalExpenses + totalInvestmentsByBalance);
-  
+    const cents = (value: Prisma.Decimal | number | string | null | undefined) =>
+      Math.round(Number(value ?? 0) * 100);
+    const amount = (valueInCents: number) => valueInCents / 100;
+    const getSum = (
+      list: typeof transactionAggregates,
+      type: TransationType,
+      status?: TransationPaymentStatus,
+    ) => list.reduce((sum, row) =>
+      sum + (row.type === type && (!status || row.paymentStatus === status) ? cents(row._sum.amount) : 0), 0);
+    const getWithdrawn = (
+      list: typeof withdrawalAggregates,
+      status: TransationPaymentStatus,
+    ) => list.reduce((sum, row) =>
+      sum + (row.type === TransationType.EXPENSE && row.withdrawal === TransationType.INVESTMENT && row.paymentStatus === status
+        ? cents(row._sum.amount) : 0), 0);
+
+    const competences = isYear
+      ? Array.from({ length: 12 }, (_, index) => `${year}-${`${index + 1}`.padStart(2, '0')}`)
+      : [`${year}-${`${month + 1}`.padStart(2, '0')}`];
+    const fixedCostMonths = await Promise.all(
+      competences.map((competence) => this.fixedCostService.findByUserIdAndMonth(userId, competence)),
+    );
+    let paidFixedCents = 0;
+    let pendingFixedCents = 0;
+    const paidFixedCategories = new Map<string, number>();
+    for (const fixedCostMonth of fixedCostMonths) {
+      for (const fixedCost of fixedCostMonth.data ?? []) {
+        const value = cents(fixedCost.monthly?.amount ?? fixedCost.defaultAmount);
+        if (fixedCost.monthly?.status === 'PAID') {
+          paidFixedCents += value;
+          paidFixedCategories.set(fixedCost.category, (paidFixedCategories.get(fixedCost.category) ?? 0) + value);
+        } else {
+          pendingFixedCents += value;
+        }
+      }
+    }
+    const annualFixedPaidCents = isYear
+      ? paidFixedCents
+      : cents((await this.prisma.fixedCostMonthly.aggregate({
+          _sum: { amount: true },
+          where: {
+            status: FixedCostMonthlyStatus.PAID,
+            competence: { gte: `${year}-01`, lte: `${year}-12` },
+            fixedCost: { userId },
+          },
+        }))._sum.amount);
+
+    const paidTransactionCents = getSum(transactionAggregates, TransationType.EXPENSE, TransationPaymentStatus.PAID);
+    const pendingTransactionCents = getSum(transactionAggregates, TransationType.EXPENSE, TransationPaymentStatus.PENDING);
+    const paidInvestmentWithdrawals = getWithdrawn(withdrawalAggregates, TransationPaymentStatus.PAID);
+    const pendingInvestmentWithdrawals = getWithdrawn(withdrawalAggregates, TransationPaymentStatus.PENDING);
+    const depositCents = getSum(transactionAggregates, TransationType.DEPOSIT);
+    const investedCents = getSum(transactionAggregates, TransationType.INVESTMENT);
+    const realizedExpenseCents = paidTransactionCents + paidFixedCents;
+    const forecastExpenseCents = pendingTransactionCents + pendingFixedCents;
+    const investedPositionCents = investedCents - paidInvestmentWithdrawals;
+    const availableBalanceCents = depositCents - investedCents - (paidTransactionCents - paidInvestmentWithdrawals) - paidFixedCents;
+    const projectedBalanceCents = availableBalanceCents - (pendingTransactionCents - pendingInvestmentWithdrawals) - pendingFixedCents;
+
+    const totalExpenses = amount(realizedExpenseCents);
+    const forecastExpenses = amount(forecastExpenseCents);
+    const totalInvestments = amount(investedPositionCents);
+    const totalDeposits = amount(depositCents);
+    const balance = amount(availableBalanceCents);
     const calculatePercentage = (value: number, total: number) =>
       total ? Math.round((value / total) * 1000) / 10 : 0;
-  
     const expensePercentage = calculatePercentage(totalExpenses, totalDeposits);
     const investmentPercentage = calculatePercentage(totalInvestments, totalDeposits);
-    const depositPercentage = calculatePercentage(totalTransactionsAmount, totalDeposits);
+    const depositPercentage = calculatePercentage(balance, totalDeposits);
   
-    const topCategories = categoryAggregates.reduce((acc, category) => {
-      if (category.category !== 'SALARY') {
-        acc.push({
-          category: category.category,
-          percent: calculatePercentage(category._count.id, totalTransactionsCount),
-          value: Number(category._sum.amount) || 0,
-        });
-      }
-      return acc;
-    }, [] as { category: string; percent: number; value: number }[]);
-  
-    const annualExpensesValue = getSum(annualAggregates, 'EXPENSE');
-    const annualInvestmentsValue = getSum(annualAggregates, 'INVESTMENT');
-    const annualDepositsValue = getSum(annualAggregates, 'DEPOSIT');
-  
-    const annualExpensesWithdrawnForInvestment = getSumWithWithdrawal(
-      annualWithdrawalAggregates,
-      'EXPENSE',
-      'INVESTMENT'
-    );
-  
-    const annualInvestmentsValueAdjusted = annualInvestmentsValue - annualExpensesWithdrawnForInvestment;
-  
+    const categoryTotals = new Map<string, number>();
+    for (const category of categoryAggregates) {
+      categoryTotals.set(category.category, cents(category._sum.amount));
+    }
+    for (const [category, value] of paidFixedCategories) {
+      categoryTotals.set(category, (categoryTotals.get(category) ?? 0) + value);
+    }
+    const topCategories = [...categoryTotals]
+      .sort((left, right) => right[1] - left[1])
+      .slice(0, 4)
+      .map(([category, value]) => ({
+        category,
+        percent: calculatePercentage(value, realizedExpenseCents),
+        value: amount(value),
+      }));
+
+    const annualPaidExpenseCents = getSum(annualAggregates, TransationType.EXPENSE, TransationPaymentStatus.PAID);
+    const annualPaidInvestmentWithdrawals = getWithdrawn(annualWithdrawalAggregates, TransationPaymentStatus.PAID);
+    const annualInvestedCents = getSum(annualAggregates, TransationType.INVESTMENT);
+    const annualDepositCents = getSum(annualAggregates, TransationType.DEPOSIT);
+    const annualExpensesValue = amount(annualPaidExpenseCents + annualFixedPaidCents);
+    const annualInvestmentsValueAdjusted = amount(annualInvestedCents - annualPaidInvestmentWithdrawals);
+    const annualDepositsValue = amount(annualDepositCents);
     const totalAnnualTransactions =
-      annualDepositsValue + annualExpensesValue + annualInvestmentsValue;
-  
-    const annualBalanceValue =
-      annualDepositsValue - (annualExpensesValue + annualInvestmentsValue);
+      annualDepositsValue + annualExpensesValue + annualInvestmentsValueAdjusted;
+    const annualBalanceValue = amount(
+      annualDepositCents - annualInvestedCents - (annualPaidExpenseCents - annualPaidInvestmentWithdrawals) - annualFixedPaidCents,
+    );
   
     const anualBalance = [
       { category: 'Balance', percent: null, value: annualBalanceValue },
@@ -890,7 +946,18 @@ export class TransationService {
     ];
   
     return {
-      totalValues: { totalExpenses, totalInvestments, totalDeposits, balance },
+      totalValues: {
+        totalExpenses,
+        realizedExpenses: totalExpenses,
+        forecastExpenses,
+        paidFixedCosts: amount(paidFixedCents),
+        pendingFixedCosts: amount(pendingFixedCents),
+        totalInvestments,
+        investedPosition: totalInvestments,
+        totalDeposits,
+        balance,
+        projectedBalance: amount(projectedBalanceCents),
+      },
       percentsValues: { expensePercentage, investmentPercentage, depositPercentage },
       topCategories,
       lastTransactions,

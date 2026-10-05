@@ -40,7 +40,7 @@ GOOGLE_REDIRECT_URI="http://localhost:4000/auth/google/callback"
 FRONTEND_URL="http://localhost:3000"
 FRONTEND_URLS=""
 TRUST_PROXY_HOPS=0
-GEMINI_API_KEY="replace-with-a-google-ai-studio-key"
+GEMINI_API_KEY=""
 GEMINI_MODEL="gemini-3.6-flash"
 
 # Optional
@@ -56,7 +56,7 @@ Notes:
 - `FRONTEND_URL` is used as the redirect target after Google login.
 - `FRONTEND_URLS` can include extra origins (comma-separated) for CORS.
 - `TRUST_PROXY_HOPS` controls how many trusted reverse proxy hops Express uses for client IPs; keep `0` when the API is exposed directly and set the actual hop count behind a trusted proxy.
-- `GEMINI_API_KEY` is currently required at startup. `GEMINI_MODEL` defaults to `gemini-3.6-flash`; generation uses the current `@google/genai` SDK and has a 10-second total retry budget. A working provider call still needs validation with a configured key.
+- `GEMINI_API_KEY` is optional. Without it, the API starts normally, cached feedback remains readable and new AI generation returns 503 with `AI_NOT_CONFIGURED`. `GEMINI_MODEL` defaults to `gemini-3.6-flash`; generation uses `@google/genai` and has a 10-second total retry budget. A working provider call still needs validation with a configured key.
 - Auth cookies are named `balance_auth`.
 - `LOG_LEVEL` accepts `error`, `warn`, `info`, or `debug`; the default is `info` in every environment. Invalid values also fall back to `info`.
 
@@ -74,7 +74,13 @@ Example with fictitious values:
 
 To find all events for a request, copy its `requestId` from the completion event and filter collected stdout lines, for example: `jq -c 'select(.requestId == "8f2c0000-0000-4000-8000-000000000000")' api.log`. `event` can also filter feedback and Gemini events such as `feedback_cache_hit`, `feedback_generation_succeeded`, and `gemini_request_failed`.
 
-HTTP serialization permits only `requestId`, `method`, route pattern `path`, `statusCode`, `durationMs`, and a fixed `errorCode` for failures. Service events permit `event`, `context`, `requestId`, `attempt`, `delayMs`, `forceRegenerate`, and fixed `errorCode`; the bootstrap event also has `port`. The logger drops unlisted object fields. Headers, cookies, Authorization, query values, bodies, prompts, model responses, financial values, user IDs, email, document, and raw external error messages are not logged. Prisma query logging remains disabled. The known `getMonthlyTransactions` read failure still returns an empty list; it emits `feedback_transactions_read_failed` and is tracked separately under TECH-004.
+HTTP serialization permits only `requestId`, `method`, route pattern `path`, `statusCode`, `durationMs`, and a fixed `errorCode` for failures. Service events permit `event`, `context`, `requestId`, `attempt`, `delayMs`, `forceRegenerate`, and fixed `errorCode`; the bootstrap event also has `port`. The logger drops unlisted object fields. Headers, cookies, Authorization, query values, bodies, prompts, model responses, financial values, user IDs, email, document, and raw external error messages are not logged. Prisma query logging remains disabled. A financial-summary read failure during AI generation returns a controlled 503 and emits `feedback_summary_read_failed`.
+
+## Financial summary
+
+`totalValues.totalExpenses` and `realizedExpenses` include paid expense transactions and paid fixed-cost monthlies. `forecastExpenses` includes pending expense transactions and pending fixed-cost monthlies, including recurring projections. `balance` is available cash after deposits, investment contributions, paid expenses withdrawn from cash, and paid fixed costs. `investedPosition` is contributions less paid expenses withdrawn from investments. `projectedBalance` also subtracts pending cash expenses and fixed-cost forecasts. `totalInvestments` remains as a compatibility alias for invested position. The web shows paid expenses, forecast expenses, available cash, and invested position separately.
+
+Editing an installment group changes only pending parcels. The group-summary endpoint returns the pending amount, start date and count plus `paidInstallments`; a fully paid group returns 409. For a mixed group, edit `amount` and `installments` refer to the pending portion, and paid rows retain their historical fields. Historical transaction and fixed-cost monthly records are independent unless reconciled by the operator; identical names or amounts are not automatically treated as one payment.
 
 ## Installation
 

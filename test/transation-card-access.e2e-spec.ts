@@ -24,7 +24,11 @@ describe("Transaction card ownership (HTTP, fake persistence)", () => {
     },
     transation: {
       create: jest.fn(async ({ data }) => {
-        const row = { id: `tx-${transactions.length + 1}`, ...data };
+        const row = {
+          id: `tx-${transactions.length + 1}`,
+          paymentStatus: "PENDING",
+          ...data,
+        };
         transactions.push(row);
         return row;
       }),
@@ -44,11 +48,24 @@ describe("Transaction card ownership (HTTP, fake persistence)", () => {
         Object.assign(row, data);
         return row;
       }),
+      updateMany: jest.fn(async ({ where, data }) => {
+        const rows = transactions.filter((transaction) =>
+          matches(transaction, where),
+        );
+        rows.forEach((row) => Object.assign(row, data));
+        return { count: rows.length };
+      }),
       deleteMany: jest.fn(async ({ where }) => {
         const ids: string[] = where.id.in;
         const before = transactions.length;
         transactions = transactions.filter(
-          (transaction) => !ids.includes(transaction.id),
+          (transaction) =>
+            !(
+              ids.includes(transaction.id) &&
+              transaction.userId === where.userId &&
+              transaction.installmentGroupId === where.installmentGroupId &&
+              transaction.paymentStatus === where.paymentStatus
+            ),
         );
         return { count: before - transactions.length };
       }),
