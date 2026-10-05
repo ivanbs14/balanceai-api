@@ -82,6 +82,8 @@ HTTP serialization permits only `requestId`, `method`, route pattern `path`, `st
 
 Editing an installment group changes only pending parcels. The group-summary endpoint returns the pending amount, start date and count plus `paidInstallments`; a fully paid group returns 409. For a mixed group, edit `amount` and `installments` refer to the pending portion, and paid rows retain their historical fields. Historical transaction and fixed-cost monthly records are independent unless reconciled by the operator; identical names or amounts are not automatically treated as one payment.
 
+The read-only inventory query at [`prisma/audits/fixed-cost-overlap.sql`](./prisma/audits/fixed-cost-overlap.sql) lists possible overlaps between expense transactions and persisted or projected fixed-cost monthlies for an explicitly selected month range. It matches the same owner, month, and category when either the amount or normalized name matches, so recurring amounts may vary. It only identifies candidates; each pair requires review before any data repair. Run it with `psql -v from_month=YYYY-MM -v to_month=YYYY-MM` against an authorized database.
+
 ## Installation
 
 ```bash
