@@ -4,6 +4,10 @@
 
 NestJS + Prisma API for the Balance application. The service handles users, cookie-based authentication, cards, transactions, and fixed costs on top of PostgreSQL.
 
+## Commit messages
+
+Write every commit subject and suggested commit subject in English. Example: `feat(api): implement TECH-004 financial and authentication changes`.
+
 ## Stack
 
 - NestJS 10
