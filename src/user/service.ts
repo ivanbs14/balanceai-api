@@ -111,7 +111,7 @@ export class UserService {
     if (data.password !== undefined) {
       if (!data.currentPassword)
         throw new BadRequestException("Informe a senha atual");
-      if (!(await bcrypt.compare(data.currentPassword, user.password))) {
+      if (!user.password || !(await bcrypt.compare(data.currentPassword, user.password))) {
         throw new ForbiddenException("Senha atual incorreta");
       }
       changes.password = await bcrypt.hash(data.password, 10);

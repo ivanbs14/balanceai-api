@@ -2,8 +2,8 @@
 import {
   IsNotEmpty,
   IsEnum,
-  IsDecimal,
-  IsDateString,
+  IsString,
+  Matches,
   ValidateIf,
   IsInt,
   Max,
@@ -16,6 +16,7 @@ import {
   ValidationArguments,
 } from 'class-validator';
 import { TransationType, TransationCategory, TransationPaymentMethod } from '@prisma/client';
+import { POSITIVE_MONEY_PATTERN } from '../../common/money';
 
 @ValidatorConstraint({ name: 'IsWithdrawalValid', async: false })
 class IsWithdrawalValidConstraint implements ValidatorConstraintInterface {
@@ -34,16 +35,19 @@ class IsWithdrawalValidConstraint implements ValidatorConstraintInterface {
 
 export class CreateTransationDto {
   @IsNotEmpty()
+  @IsString()
   name: string;
 
-  @IsNotEmpty()
-  userId: string;
+  @ValidateIf((_, value) => value !== undefined)
+  @IsString()
+  userId?: string;
 
   @IsEnum(TransationType)
   type: TransationType;
 
-  @IsDecimal()
-  amount: number;
+  @IsString()
+  @Matches(POSITIVE_MONEY_PATTERN)
+  amount: string;
 
   @IsEnum(TransationCategory)
   category: TransationCategory;
@@ -71,7 +75,7 @@ export class CreateTransationDto {
   @IsOptional()
   cardId?: string;
 
-  @IsDateString()
+  @Matches(/^\d{4}-(0[1-9]|1[0-2])-\d{2}$/)
   Date: string;
 
   @IsOptional()

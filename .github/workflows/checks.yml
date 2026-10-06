@@ -1,0 +1,52 @@
+name: API checks
+
+on:
+  pull_request:
+  push:
+    branches: [main, ai-config]
+
+jobs:
+  api:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: balance_test
+          POSTGRES_PASSWORD: balance_test
+          POSTGRES_DB: balance_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U balance_test -d balance_test"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      DATABASE_URL: postgresql://balance_test:balance_test@127.0.0.1:5432/balance_test
+      TEST_DATABASE_URL: postgresql://balance_test:balance_test@127.0.0.1:5432/balance_test
+      TECH008_DATABASE_URL: postgresql://balance_test:balance_test@127.0.0.1:5432/balance_test
+      TECH011_DATABASE_URL: postgresql://balance_test:balance_test@127.0.0.1:5432/balance_test
+      TECH014_DATABASE_URL: postgresql://balance_test:balance_test@127.0.0.1:5432/balance_test
+      TECH015_DATABASE_URL: postgresql://balance_test:balance_test@127.0.0.1:5432/balance_test
+      UPGRADE_DATABASE_URL: postgresql://balance_test:balance_test@127.0.0.1:5432/balance_upgrade_test
+      JWT_SECRET: ci-only-secret-at-least-32-characters-long
+      FRONTEND_URL: http://localhost:3000
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+      - run: npm ci
+      - run: npx prisma validate && npx prisma generate
+      - run: npm run lint && npm run format:check && npm run build
+      - run: npx prisma migrate deploy
+      - run: bash scripts/check-populated-upgrade.sh
+      - run: npm run test:cov -- --runInBand --watchman=false --testPathIgnorePatterns=ai-feedback
+      - run: npm run test:e2e -- --runInBand --watchman=false
+      - run: npm run test:integration
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: api-coverage
+          path: coverage/
+          if-no-files-found: ignore

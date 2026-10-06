@@ -1,15 +1,14 @@
 /* eslint-disable prettier/prettier */
-import { IsDecimal, IsOptional, IsString } from 'class-validator';
+import { IsString, Matches, ValidateIf } from 'class-validator';
+import { POSITIVE_MONEY_PATTERN } from '../../common/money';
 
 export class UpdateTransationDto {
-  @IsOptional()
+  @ValidateIf((_, value) => value !== undefined)
   @IsString()
   name?: string;
 
-  @IsOptional()
-  @IsDecimal(
-    { decimal_digits: '2', force_decimal: true },
-    { message: 'O valor deve ser um número decimal com 2 casas decimais.' },
-  )
+  @ValidateIf((_, value) => value !== undefined)
+  @IsString()
+  @Matches(POSITIVE_MONEY_PATTERN)
   amount?: string;
 }

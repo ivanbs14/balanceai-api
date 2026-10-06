@@ -1,5 +1,5 @@
 /* eslint-disable prettier/prettier */
-import { BadRequestException, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, NotFoundException } from '@nestjs/common';
 import { TransationPaymentMethod, TransationPaymentStatus } from '@prisma/client';
 import { TransationService } from './transation.service';
 
@@ -23,6 +23,10 @@ describe('TransationService', () => {
     },
     fixedCostMonthly: {
       aggregate: jest.fn(),
+      findUnique: jest.fn(),
+      update: jest.fn(),
+      updateMany: jest.fn(),
+      count: jest.fn(),
     },
     $transaction: jest.fn(async (callback: any) => callback(prismaMock)),
   } as any;
@@ -36,7 +40,33 @@ describe('TransationService', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     prismaMock.transation.updateMany.mockResolvedValue({ count: 1 });
+    prismaMock.fixedCostMonthly.findUnique.mockResolvedValue(null);
+    prismaMock.fixedCostMonthly.count.mockResolvedValue(0);
+    prismaMock.fixedCostMonthly.updateMany.mockResolvedValue({ count: 0 });
     service = new TransationService(prismaMock, fixedCostServiceMock);
+  });
+
+  it('rejeita edição do grupo se outra parcela estiver vinculada', async () => {
+    const anchor = {
+      id: 'anchor', userId: 'user-1', installmentGroupId: 'group-linked',
+      paymentMethod: TransationPaymentMethod.PIX, installments: 2,
+      paymentStatus: TransationPaymentStatus.PENDING, Date: new Date('2026-10-01T00:00:00.000Z'),
+    };
+    prismaMock.transation.findUnique.mockResolvedValue(anchor);
+    prismaMock.transation.findMany.mockResolvedValue([
+      anchor,
+      { ...anchor, id: 'linked-parcel', Date: new Date('2026-11-01T00:00:00.000Z') },
+    ]);
+    prismaMock.fixedCostMonthly.count.mockResolvedValue(1);
+
+    await expect(service.updateInstallmentGroup('anchor', 'user-1', {
+      name: 'Compra', amount: '100.00', Date: '2026-10-01',
+      paymentMethod: TransationPaymentMethod.PIX, installments: 2,
+    } as any)).rejects.toBeInstanceOf(ConflictException);
+    expect(prismaMock.fixedCostMonthly.count).toHaveBeenCalledWith({
+      where: { transactionId: { in: ['anchor', 'linked-parcel'] } },
+    });
+    expect(prismaMock.transation.updateMany).not.toHaveBeenCalled();
   });
 
   it('should create a deposit transaction with the provided userId', async () => {
@@ -305,6 +335,18 @@ describe('TransationService', () => {
       investmentPercentage: 10,
       depositPercentage: 70,
     });
+  });
+
+  it('propaga falha de leitura do cartão ao montar o dashboard', async () => {
+    const summarySpy = jest.spyOn(service, 'getAllBalance').mockResolvedValue({} as any);
+    const cardSpy = jest.spyOn(service, 'getTopCreditCardsByMonth').mockRejectedValue(new Error('database unavailable'));
+    fixedCostServiceMock.findByUserIdAndMonth.mockResolvedValue({ data: [] });
+    prismaMock.transation.findMany.mockResolvedValue([]);
+
+    await expect(service.getDashboardMonthlyData('user-1', '2026-07'))
+      .rejects.toThrow('database unavailable');
+    summarySpy.mockRestore();
+    cardSpy.mockRestore();
   });
 
   it('separates available cash, invested position, paid expenses and forecasts', async () => {
@@ -1079,6 +1121,10 @@ describe('TransationService', () => {
         userId: 'user-1',
         type: 'EXPENSE',
         paymentMethod: TransationPaymentMethod.CREDIT_CARD,
+        OR: [
+          { paymentStatus: TransationPaymentStatus.PENDING },
+          { Date: { gte: new Date('2026-07-01T00:00:00.000Z'), lt: new Date('2026-08-01T00:00:00.000Z') } },
+        ],
       },
       orderBy: [{ Date: 'asc' }, { createdAt: 'asc' }],
     });

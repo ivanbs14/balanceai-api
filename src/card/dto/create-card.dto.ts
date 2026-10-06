@@ -1,18 +1,23 @@
 /* eslint-disable prettier/prettier */
-import { IsString, IsDateString, IsDecimal, IsNotEmpty } from 'class-validator';
+import { IsString, IsNotEmpty, Matches, ValidateIf } from 'class-validator';
+import { POSITIVE_MONEY_PATTERN } from '../../common/money';
 
 export class CreateCardDto {
   @IsString()
   @IsNotEmpty({ message: 'O nome do cartão é obrigatório.' })
   name: string;
 
-  @IsDateString({}, { message: 'A data de fechamento da fatura deve ser uma data válida.' })
+  @Matches(/^\d{4}-(0[1-9]|1[0-2])-\d{2}$/)
   invoiceDate: string;
 
-  @IsDecimal({ decimal_digits: '2', force_decimal: true }, { message: 'O limite do cartão deve ser um número decimal com 2 casas decimais.' })
+  @Matches(POSITIVE_MONEY_PATTERN)
   limitBalance: string;
 
-  @IsDateString({}, { message: 'A data de fechamento da fatura deve ser uma data válida.' })
+  @Matches(/^\d{4}-(0[1-9]|1[0-2])-\d{2}$/)
   invoicePayment: string;
+
+  @ValidateIf((_, value) => value !== undefined)
+  @IsString()
+  userId?: string;
 
 }

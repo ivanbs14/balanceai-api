@@ -21,11 +21,22 @@ RUN npx prisma generate
 COPY . .
 RUN npm run build
 
+FROM build AS production-deps
+RUN npm prune --omit=dev
+
+# Run this target once as a deployment job before starting replicas.
+FROM base AS migrate
+ENV NODE_ENV=production
+COPY --from=build --chown=node:node /app/node_modules ./node_modules
+COPY --from=build --chown=node:node /app/prisma ./prisma
+USER node
+CMD ["./node_modules/.bin/prisma", "migrate", "deploy"]
+
 FROM base AS production
 ENV NODE_ENV=production
-COPY --from=build /app/node_modules ./node_modules
-COPY --from=build /app/prisma ./prisma
-COPY --from=build /app/dist ./dist
-COPY package*.json ./
+COPY --from=production-deps --chown=node:node /app/node_modules ./node_modules
+COPY --from=build --chown=node:node /app/dist ./dist
+COPY --from=build --chown=node:node /app/package*.json ./
+USER node
 EXPOSE 4000
-CMD ["npm", "run", "start:deploy"]
+CMD ["node", "dist/src/main.js"]

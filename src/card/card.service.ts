@@ -6,6 +6,7 @@ import {
 } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
 import { PrismaService } from "../prisma-services/prisma.service";
+import { parseCivilDate, utcMonthBounds } from "../common/civil-date";
 import { CreateCardDto } from "./dto/create-card.dto";
 import { UpdateCardDto } from "./dto/update-card.dto";
 
@@ -31,6 +32,9 @@ export class CardService {
     ) {
       throw new NotFoundException("Cartão não encontrado.");
     }
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2003") {
+      throw new ConflictException("Cartão possui transações associadas.");
+    }
     throw error;
   }
 
@@ -38,8 +42,8 @@ export class CardService {
     return this.prisma.card.create({
       data: {
         name: data.name,
-        invoiceDate: new Date(data.invoiceDate),
-        invoicePayment: new Date(data.invoicePayment),
+        invoiceDate: parseCivilDate(data.invoiceDate),
+        invoicePayment: parseCivilDate(data.invoicePayment),
         limitBalance: data.limitBalance,
         userId,
       },
@@ -91,20 +95,18 @@ export class CardService {
     if (date) {
       if (
         !/^\d{4}-(0[1-9]|1[0-2])-\d{2}$/.test(date) ||
-        Number.isNaN(new Date(date).getTime())
+        Number.isNaN(parseCivilDate(date).getTime())
       ) {
         throw new BadRequestException("Data inválida. Use YYYY-MM-DD.");
       }
-      const [year, month] = date.split("-").map(Number);
-      const startDate = new Date(year, month - 1, 1);
-      const endDate = new Date(year, month, 1);
+      const { start: startDate, end: endDate } = utcMonthBounds(date.slice(0, 7));
       where.Date = { gte: startDate, lt: endDate };
     }
     const transactions = await this.prisma.transation.findMany({
       where,
       skip: (page - 1) * pageSize,
       take: pageSize,
-      orderBy: { Date: "desc" },
+      orderBy: [{ Date: "desc" }, { id: "desc" }],
     });
     const totalRecords = await this.prisma.transation.count({ where });
     return {
@@ -123,10 +125,10 @@ export class CardService {
         data: {
           ...(data.name !== undefined ? { name: data.name } : {}),
           ...(data.invoiceDate !== undefined
-            ? { invoiceDate: new Date(data.invoiceDate) }
+            ? { invoiceDate: parseCivilDate(data.invoiceDate) }
             : {}),
           ...(data.invoicePayment !== undefined
-            ? { invoicePayment: new Date(data.invoicePayment) }
+            ? { invoicePayment: parseCivilDate(data.invoicePayment) }
             : {}),
           ...(data.limitBalance !== undefined
             ? { limitBalance: data.limitBalance }

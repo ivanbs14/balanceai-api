@@ -343,7 +343,11 @@ function rowContainsValue(row: string[], value: string): boolean {
 }
 
 function createDate(year: number, month: number, day: number): Date {
-  return new Date(year, month - 1, day);
+  const lastDay = new Date(Date.UTC(year, month, 0)).getUTCDate();
+  if (month < 1 || month > 12 || day < 1 || day > lastDay) {
+    throw new Error(`Data civil inválida: ${year}-${month}-${day}`);
+  }
+  return new Date(Date.UTC(year, month - 1, day));
 }
 
 function mapCategory(rawCategory: string, type: TransationType, rawName: string): TransationCategory {
@@ -750,7 +754,7 @@ async function main() {
           user.id,
           desiredCardName,
           cardMap,
-          false,
+          options.dryRun,
           options.createMissingCards
         );
 
@@ -799,7 +803,7 @@ async function main() {
 
       seenRepairKeys.add(repairKey);
 
-      const result = await prisma.transation.updateMany({
+      const result = options.dryRun ? { count: 0 } : await prisma.transation.updateMany({
         where: {
           userId: data.userId,
           name: data.name,
@@ -822,7 +826,7 @@ async function main() {
     }
 
     console.log('');
-    console.log('Reparo de transações fixas');
+    console.log(options.dryRun ? 'Simulação de reparo de transações fixas' : 'Reparo de transações fixas');
     console.log(`Usuário: ${user.email} (${user.id})`);
     console.log(`Registros fixos identificados no CSV: ${fixedTransactions.length}`);
     console.log(`Registros fixos únicos para reparo: ${seenRepairKeys.size}`);
@@ -944,6 +948,9 @@ async function main() {
   let recordsToInsert = canonicalRecords;
 
   if (options.syncUser) {
+    if (await prisma.fixedCostMonthly.count({ where: { transaction: { userId: user.id } } })) {
+      throw new Error('--sync-user recusado: existem transações vinculadas a mensalidades; reconcilie por ID antes de substituir o histórico.');
+    }
     stats.deleted = existing.length;
     stats.duplicatesInDb = existing.filter((item) =>
       seenInBatch.has(

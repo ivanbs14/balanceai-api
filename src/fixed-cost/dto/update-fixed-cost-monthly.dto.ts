@@ -1,16 +1,22 @@
 /* eslint-disable prettier/prettier */
-import { IsDateString, IsDecimal, IsEnum, ValidateIf } from 'class-validator';
+import { IsDateString, IsEnum, IsString, Matches, ValidateIf } from 'class-validator';
 import { FixedCostMonthlyStatus } from '@prisma/client';
+import { POSITIVE_MONEY_PATTERN } from '../../common/money';
 
 export class UpdateFixedCostMonthlyDto {
   @IsEnum(FixedCostMonthlyStatus, { message: 'O status informado é inválido.' })
   status: FixedCostMonthlyStatus;
 
   @ValidateIf((_, value) => value !== undefined)
-  @IsDecimal({ decimal_digits: '2', force_decimal: true }, { message: 'O valor deve ser um número decimal com 2 casas decimais.' })
+  @Matches(POSITIVE_MONEY_PATTERN)
   amount?: string;
 
   @ValidateIf((_, value) => value !== undefined)
-  @IsDateString({}, { message: 'A data de pagamento deve ser uma data válida.' })
+  @Matches(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?Z$/)
+  @IsDateString()
   paidAt?: string;
+
+  @ValidateIf((_, value) => value !== undefined)
+  @IsString()
+  userId?: string;
 }

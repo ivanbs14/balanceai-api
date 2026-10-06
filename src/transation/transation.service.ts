@@ -9,7 +9,7 @@ import {
 } from '@prisma/client';
 import { randomUUID } from 'crypto';
 import { PrismaService } from '../prisma-services/prisma.service';
-import { addMonths } from 'date-fns';
+import { addCivilMonths, civilUtc, parseCivilDate, utcMonthBounds } from '../common/civil-date';
 import { FixedCostService } from '../fixed-cost/fixed-cost.service';
 import { UpdateInstallmentGroupDto } from './dto/update-installment-group.dto';
 import { UpdateTransationPaymentStatusDto } from './dto/update-transation-payment-status.dto';
@@ -24,7 +24,7 @@ export class TransationService {
   ) {}
 
   private normalizeDateInput(value: string | Date) {
-    return value instanceof Date ? value : new Date(value);
+    return value instanceof Date ? value : parseCivilDate(value);
   }
 
   private normalizeCardName(value: string | null | undefined) {
@@ -67,6 +67,7 @@ export class TransationService {
     }
 
     if (yearMonthPattern.test(date) || fullDatePattern.test(date)) {
+      if (fullDatePattern.test(date)) parseCivilDate(date);
       const [yearPart, monthPart] = date.split('-');
       const month = Number.parseInt(monthPart, 10);
 
@@ -170,7 +171,7 @@ export class TransationService {
       amount: amounts[index],
       installments,
       installmentInfo: `${index + 1}/${installments}`,
-      Date: addMonths(startDate, index),
+      Date: addCivilMonths(startDate, index),
     }));
   }
 
@@ -264,7 +265,7 @@ export class TransationService {
     };
   }
 
-  async create(data: Prisma.TransationCreateInput) {
+  async create(data: Prisma.TransationUncheckedCreateInput) {
     if (
       data.paymentMethod === TransationPaymentMethod.CREDIT_CARD &&
       (!data.installments || data.installments < 1)
@@ -331,6 +332,8 @@ export class TransationService {
   async findAllByUserId(userId: string) {
     return this.prisma.transation.findMany({
       where: { userId },
+      orderBy: [{ Date: 'desc' }, { id: 'desc' }],
+      take: 100,
     });
   }
 
@@ -347,9 +350,11 @@ export class TransationService {
   ) {
     const { year, month } = this.parseYearMonthInput(date);
 
-    const startDate = new Date(year, month, 1);
-    const endDate = new Date(startDate);
-    endDate.setMonth(endDate.getMonth() + 1);
+    const { start: startDate, end: endDate } = utcMonthBounds(`${year}-${`${month + 1}`.padStart(2, '0')}`);
+
+    if (!Number.isSafeInteger(page) || page < 1 || !Number.isSafeInteger(pageSize) || pageSize < 1 || pageSize > 100 || (page - 1) * pageSize > 2147483647) {
+      throw new BadRequestException('Paginação inválida.');
+    }
 
     if (paymentStatus && !Object.values(TransationPaymentStatus).includes(paymentStatus)) {
       throw new BadRequestException('O status de pagamento informado é inválido.');
@@ -372,6 +377,7 @@ export class TransationService {
       where,
       skip,
       take: pageSize,
+      orderBy: [{ Date: 'desc' }, { id: 'desc' }],
     });
   
     // Obter o total de registros para calcular o total de páginas
@@ -391,21 +397,12 @@ export class TransationService {
   };  
 
   private async findAllTransactionsByUserIdAndMonth(userId: string, date: string) {
-    const pageSize = 100;
-    const firstPage = await this.findByUserIdAndMonth(userId, date, 1, pageSize);
-    const totalPages = Math.max(1, firstPage.totalPages ?? 1);
-    const transactions = [...(firstPage.transactions ?? [])];
-
-    if (totalPages === 1) {
-      return transactions;
-    }
-
-    for (let page = 2; page <= totalPages; page += 1) {
-      const currentPage = await this.findByUserIdAndMonth(userId, date, page, pageSize);
-      transactions.push(...(currentPage.transactions ?? []));
-    }
-
-    return transactions;
+    const { year, month } = this.parseYearMonthInput(date);
+    const { start, end } = utcMonthBounds(`${year}-${`${month + 1}`.padStart(2, '0')}`);
+    return this.prisma.transation.findMany({
+      where: { userId, Date: { gte: start, lt: end } },
+      orderBy: [{ Date: 'desc' }, { id: 'desc' }],
+    });
   }
 
   async getDashboardMonthlyData(userId: string, month: string) {
@@ -413,7 +410,7 @@ export class TransationService {
       this.getAllBalance(userId, month),
       this.fixedCostService.findByUserIdAndMonth(userId, month),
       this.findAllTransactionsByUserIdAndMonth(userId, month),
-      this.getTopCreditCardsByMonth(userId, month).catch(() => ({ topCredcards: [] })),
+      this.getTopCreditCardsByMonth(userId, month),
     ]);
 
     return {
@@ -437,12 +434,15 @@ export class TransationService {
       );
     }
 
-    return this.prisma.transation.update({
-      where: { id },
-      data: {
-        ...data,
-      },
-    });
+    const linkedMonthly = await this.prisma.fixedCostMonthly.findUnique({ where: { transactionId: id } });
+    if (linkedMonthly && data.amount !== undefined) {
+      return this.prisma.$transaction(async (tx) => {
+        const updated = await tx.transation.update({ where: { id }, data });
+        await tx.fixedCostMonthly.update({ where: { id: linkedMonthly.id }, data: { amount: data.amount } });
+        return updated;
+      });
+    }
+    return this.prisma.transation.update({ where: { id }, data });
   }
 
   async updateInstallmentGroup(
@@ -460,7 +460,8 @@ export class TransationService {
     const cardData = await this.resolveOwnedCard(data.paymentMethod, data.cardId, userId);
     const startDate = this.normalizeDateInput(data.Date);
 
-    return this.prisma.$transaction(async (tx) => {
+    try {
+    return await this.prisma.$transaction(async (tx) => {
       const group = await tx.transation.findMany({
         where: {
           installmentGroupId: anchorTransaction.installmentGroupId,
@@ -470,6 +471,11 @@ export class TransationService {
 
       if (group.length === 0) {
         throw new NotFoundException('Grupo parcelado não encontrado.');
+      }
+      if (await tx.fixedCostMonthly.count({
+        where: { transactionId: { in: group.map((installment) => installment.id) } },
+      })) {
+        throw new ConflictException('Desvincule as mensalidades antes de editar o grupo.');
       }
 
       const paid = group.filter(
@@ -597,7 +603,13 @@ export class TransationService {
         },
         orderBy: [{ Date: 'asc' }, { createdAt: 'asc' }],
       });
-    });
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+    } catch (error) {
+      if (error instanceof Prisma.PrismaClientKnownRequestError && ['P2003', 'P2034'].includes(error.code)) {
+        throw new ConflictException('Grupo alterado por outra operação. Recarregue e tente novamente.');
+      }
+      throw error;
+    }
   }
 
   async updatePaymentStatus(
@@ -611,18 +623,26 @@ export class TransationService {
       ? (data.paidAt ? new Date(data.paidAt) : new Date())
       : null;
 
-    return this.prisma.transation.update({
-      where: { id },
-      data: {
-        paymentStatus: data.paymentStatus,
-        paidAt,
-      },
+    return this.prisma.$transaction(async (tx) => {
+      const updated = await tx.transation.update({ where: { id }, data: { paymentStatus: data.paymentStatus, paidAt } });
+      await tx.fixedCostMonthly.updateMany({
+        where: { transactionId: id },
+        data: {
+          status: data.paymentStatus === TransationPaymentStatus.PAID ? FixedCostMonthlyStatus.PAID : FixedCostMonthlyStatus.PENDING,
+          paidAt,
+        },
+      });
+      return updated;
     });
   }
 
   async delete(id: string, userId: string) {
     const transaction = await this.getOwnedTransaction(id, userId);
+    if (await this.prisma.fixedCostMonthly.count({ where: { transactionId: id } })) {
+      throw new ConflictException('Transação vinculada a custo fixo não pode ser excluída independentemente.');
+    }
 
+    try {
     if (this.isInstallmentTransaction(transaction)) {
       const deleted = await this.prisma.transation.deleteMany({
         where: this.getOpenInstallmentsDeleteWhere(transaction),
@@ -641,6 +661,12 @@ export class TransationService {
       deletedTransactionId: deletedTransaction.id,
       preservedPaidCount: 0,
     };
+    } catch (error) {
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2003') {
+        throw new ConflictException('Transação vinculada ou com dependências não pode ser excluída.');
+      }
+      throw error;
+    }
   }
  
   async findByNameCard(userId: string, nameCard: string) {
@@ -710,12 +736,17 @@ export class TransationService {
   async getTopCreditCardsByMonth(userId: string, date: string) {
     const { year, month } = this.parseYearMonthInput(date);
     const selectedMonthId = `${year}-${`${month + 1}`.padStart(2, '0')}`;
+    const { start, end } = utcMonthBounds(selectedMonthId);
 
     const transactions = await this.prisma.transation.findMany({
       where: {
         userId,
         type: TransationType.EXPENSE,
         paymentMethod: TransationPaymentMethod.CREDIT_CARD,
+        OR: [
+          { paymentStatus: TransationPaymentStatus.PENDING },
+          { Date: { gte: start, lt: end } },
+        ],
       },
       orderBy: [
         { Date: 'asc' },
@@ -774,11 +805,11 @@ export class TransationService {
   async getAllBalance(userId: string, date: string) {
     const { year, month, isYear } = this.parseYearMonthInput(date, true);
   
-    const startDate = new Date(year, month, 1);
-    const endDate = new Date(year, isYear ? 12 : month + 1, 1);
+    const startDate = civilUtc(year, month, 1);
+    const endDate = civilUtc(year, isYear ? 12 : month + 1, 1);
   
-    const startOfYear = new Date(year, 0, 1);
-    const endOfYear = new Date(year + 1, 0, 1);
+    const startOfYear = civilUtc(year, 0, 1);
+    const endOfYear = civilUtc(year + 1, 0, 1);
   
     const [
       transactionAggregates,
@@ -855,6 +886,7 @@ export class TransationService {
     for (const fixedCostMonth of fixedCostMonths) {
       for (const fixedCost of fixedCostMonth.data ?? []) {
         const value = cents(fixedCost.monthly?.amount ?? fixedCost.defaultAmount);
+        if (fixedCost.monthly?.transactionId) continue;
         if (fixedCost.monthly?.status === 'PAID') {
           paidFixedCents += value;
           paidFixedCategories.set(fixedCost.category, (paidFixedCategories.get(fixedCost.category) ?? 0) + value);
@@ -869,6 +901,7 @@ export class TransationService {
           _sum: { amount: true },
           where: {
             status: FixedCostMonthlyStatus.PAID,
+            transactionId: null,
             competence: { gte: `${year}-01`, lte: `${year}-12` },
             fixedCost: { userId },
           },

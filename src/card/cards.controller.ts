@@ -25,6 +25,7 @@ export class CardController {
 
   @Post()
   create(@Body() data: CreateCardDto, @CurrentUser() user: AuthPayload) {
+    if (data.userId !== undefined && data.userId !== user.userId) throw new ForbiddenException();
     return this.cardService.create(data, user.userId);
   }
 
@@ -91,6 +92,7 @@ export class CardController {
     @Body() data: UpdateCardDto,
     @CurrentUser() user: AuthPayload,
   ) {
+    if (data.userId !== undefined && data.userId !== user.userId) throw new ForbiddenException();
     return this.cardService.update(id, user.userId, data);
   }
 

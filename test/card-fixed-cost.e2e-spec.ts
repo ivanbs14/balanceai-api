@@ -24,7 +24,7 @@ describe("Cards and fixed costs access (real HTTP, fake persistence)", () => {
               (cost) =>
                 cost.id === row.fixedCostId && cost.userId === value.userId,
             )
-          : row[key] === value,
+          : row[key] === value || (value === null && row[key] === undefined),
       ),
     );
   const prisma = {
@@ -89,10 +89,19 @@ describe("Cards and fixed costs access (real HTTP, fake persistence)", () => {
         async ({ where }) =>
           monthlys.find(
             (row) =>
-              row.fixedCostId === where.fixedCostId_competence.fixedCostId &&
-              row.competence === where.fixedCostId_competence.competence,
+              where.transactionId !== undefined
+                ? row.transactionId === where.transactionId
+                : row.fixedCostId === where.fixedCostId_competence.fixedCostId &&
+                  row.competence === where.fixedCostId_competence.competence,
           ) ?? null,
       ),
+      upsert: jest.fn(async ({ where, create, update }) => {
+        const row = monthlys.find((item) => item.fixedCostId === where.fixedCostId_competence.fixedCostId && item.competence === where.fixedCostId_competence.competence);
+        if (row) { Object.assign(row, update); return row; }
+        const created = { id: `monthly-${monthlys.length + 1}`, transactionId: null, ...create };
+        monthlys.push(created);
+        return created;
+      }),
       create: jest.fn(async ({ data }) => {
         const row = { id: `monthly-${monthlys.length + 1}`, ...data };
         monthlys.push(row);
@@ -118,6 +127,7 @@ describe("Cards and fixed costs access (real HTTP, fake persistence)", () => {
       ),
       count: jest.fn(async ({ where }) => filter(transactions, where).length),
     },
+    $transaction: jest.fn(async (callback) => callback(prisma)),
   };
   const own = (path: string) =>
     request(app.getHttpServer()).get(path).set("Cookie", cookieA);
@@ -258,28 +268,32 @@ describe("Cards and fixed costs access (real HTTP, fake persistence)", () => {
     }
   });
 
-  it("uses the session owner for creations and strips forged owners on updates", async () => {
+  it("rejects a divergent legacy owner and accepts the session owner", async () => {
+    await request(app.getHttpServer()).post("/cards").set("Cookie", cookieA).send({ ...cardInput, userId: "user-b" }).expect(403);
+    await request(app.getHttpServer()).post("/fixed-costs").set("Cookie", cookieA).send({ ...costInput, userId: "user-b" }).expect(403);
+    await request(app.getHttpServer()).patch("/cards/card-a").set("Cookie", cookieA).send({ name: "Gold", userId: "user-b" }).expect(403);
+    await request(app.getHttpServer()).patch("/fixed-costs/cost-a").set("Cookie", cookieA).send({ name: "Casa", userId: "user-b" }).expect(403);
     await request(app.getHttpServer())
       .post("/cards")
       .set("Cookie", cookieA)
-      .send({ ...cardInput, userId: "user-b" })
+      .send({ ...cardInput, userId: "user-a" })
       .expect(201);
     await request(app.getHttpServer())
       .post("/fixed-costs")
       .set("Cookie", cookieA)
-      .send({ ...costInput, userId: "user-b" })
+      .send({ ...costInput, userId: "user-a" })
       .expect(201);
     expect(cards.at(-1).userId).toBe("user-a");
     expect(costs.at(-1).userId).toBe("user-a");
     await request(app.getHttpServer())
       .patch("/cards/card-a")
       .set("Cookie", cookieA)
-      .send({ name: "Gold", userId: "user-b" })
+      .send({ name: "Gold", userId: "user-a" })
       .expect(200);
     await request(app.getHttpServer())
       .patch("/fixed-costs/cost-a")
       .set("Cookie", cookieA)
-      .send({ name: "Casa", userId: "user-b" })
+      .send({ name: "Casa", userId: "user-a" })
       .expect(200);
     expect(cards[0]).toMatchObject({ name: "Gold", userId: "user-a" });
     expect(costs[0]).toMatchObject({ name: "Casa", userId: "user-a" });

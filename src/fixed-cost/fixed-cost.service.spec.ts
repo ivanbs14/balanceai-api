@@ -23,13 +23,16 @@ describe("FixedCostService", () => {
       create: jest.fn(),
       updateMany: jest.fn(),
       count: jest.fn(),
+      upsert: jest.fn(),
     },
+    $transaction: jest.fn(async (callback: any) => callback(prismaMock)),
   } as any;
 
   let service: FixedCostService;
 
   beforeEach(() => {
     jest.clearAllMocks();
+    prismaMock.fixedCostMonthly.findUnique.mockResolvedValue(null);
     service = new FixedCostService(prismaMock);
   });
 
@@ -146,9 +149,11 @@ describe("FixedCostService", () => {
           monthly: {
             id: null,
             competence: "2026-09",
-            status: FixedCostMonthlyStatus.PENDING,
+            dueDate: "2026-09-05",
+              status: FixedCostMonthlyStatus.PENDING,
             amount: "100.00",
             paidAt: null,
+            transactionId: null,
           },
         }),
       ],
@@ -196,21 +201,25 @@ describe("FixedCostService", () => {
     prismaMock.fixedCost.findFirst.mockResolvedValue({
       id: "fixed-1",
       defaultAmount: "300.00",
+      recurrence: FixedCostRecurrence.MONTHLY,
+      startDate: new Date("2026-07-01T00:00:00.000Z"),
     });
     prismaMock.fixedCostMonthly.findUnique.mockResolvedValue(null);
-    prismaMock.fixedCostMonthly.create.mockResolvedValue({ id: "monthly-1" });
+    prismaMock.fixedCostMonthly.upsert.mockResolvedValue({ id: "monthly-1" });
 
     await service.updateMonthly("fixed-1", "user-1", "2026-08", {
       status: FixedCostMonthlyStatus.PAID,
     });
 
-    expect(prismaMock.fixedCostMonthly.create).toHaveBeenCalledWith({
-      data: expect.objectContaining({
+    expect(prismaMock.fixedCostMonthly.upsert).toHaveBeenCalledWith({
+      create: expect.objectContaining({
         fixedCostId: "fixed-1",
         competence: "2026-08",
         status: FixedCostMonthlyStatus.PAID,
         amount: "300.00",
       }),
+      update: expect.any(Object),
+      where: expect.any(Object),
     });
   });
 
@@ -248,6 +257,7 @@ describe("FixedCostService", () => {
         fixedCostId: "fixed-1",
         fixedCost: { userId: "user-1" },
         status: FixedCostMonthlyStatus.PENDING,
+        transactionId: null,
       },
       data: {
         amount: "150.00",

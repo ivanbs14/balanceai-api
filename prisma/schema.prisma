@@ -16,14 +16,16 @@ datasource db {
 model User {
   id       String  @id @default(uuid())
   name      String
-  document String  @unique
+  document String?  @unique
   email    String  @unique
-  password String
+  password String?
+  googleSub String? @unique
   role String @default("user")
   createdAt DateTime @default(now())
 
   cards  Card[]
   fixedCosts FixedCost[]
+  transations Transation[]
 }
 
 model Transation {
@@ -45,11 +47,16 @@ model Transation {
   createdAt       DateTime                @default(now())
   updatedAt       DateTime                @updatedAt
   userId          String
+  user            User @relation(fields: [userId], references: [id], onDelete: Restrict)
+  card            Card? @relation(fields: [cardId, userId], references: [id, userId], onDelete: Restrict)
+  fixedCostMonthly FixedCostMonthly?
 
   /// Optional: Only used when `type` is `EXPENSE`. Must be `DEPOSIT` or `INVESTMENT`.
   withdrawal      TransationType?
   @@index([cardId])
   @@index([installmentGroupId])
+  @@index([userId, Date, id])
+  @@index([userId, installmentGroupId, paymentStatus])
 }
 
 model Card {
@@ -61,9 +68,11 @@ model Card {
 
   userId          String
   user            User      @relation(fields: [userId], references: [id])
+  transations     Transation[]
 
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
+  @@unique([id, userId])
 }
 
 model FixedCost {
@@ -94,10 +103,12 @@ model FixedCostMonthly {
   status       FixedCostMonthlyStatus  @default(PENDING)
   amount       Decimal                @db.Decimal(10, 2)
   paidAt       DateTime?
+  transactionId String? @unique
   createdAt    DateTime               @default(now())
   updatedAt    DateTime               @updatedAt
 
-  fixedCost    FixedCost              @relation(fields: [fixedCostId], references: [id], onDelete: Cascade)
+  fixedCost    FixedCost              @relation(fields: [fixedCostId], references: [id], onDelete: Restrict)
+  transaction  Transation?            @relation(fields: [transactionId], references: [id], onDelete: Restrict)
 
   @@unique([fixedCostId, competence])
   @@index([fixedCostId])

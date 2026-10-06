@@ -1,6 +1,7 @@
 /* eslint-disable prettier/prettier */
-import { IsBoolean, IsDateString, IsDecimal, IsEnum, IsInt, IsNotEmpty, IsString, Max, Min, ValidateIf } from 'class-validator';
+import { IsBoolean, IsEnum, IsInt, IsNotEmpty, IsString, Matches, Max, Min, ValidateIf } from 'class-validator';
 import { FixedCostRecurrence, TransationCategory, TransationPaymentMethod } from '@prisma/client';
+import { POSITIVE_MONEY_PATTERN } from '../../common/money';
 
 export class UpdateFixedCostDto {
   @ValidateIf((_, value) => value !== undefined)
@@ -9,7 +10,7 @@ export class UpdateFixedCostDto {
   name?: string;
 
   @ValidateIf((_, value) => value !== undefined)
-  @IsDecimal({ decimal_digits: '2', force_decimal: true }, { message: 'O valor padrão deve ser um número decimal com 2 casas decimais.' })
+  @Matches(POSITIVE_MONEY_PATTERN)
   defaultAmount?: string;
 
   @ValidateIf((_, value) => value !== undefined)
@@ -25,7 +26,7 @@ export class UpdateFixedCostDto {
   recurrence?: FixedCostRecurrence;
 
   @ValidateIf((_, value) => value !== undefined)
-  @IsDateString({}, { message: 'A data inicial deve ser uma data válida.' })
+  @Matches(/^\d{4}-(0[1-9]|1[0-2])-\d{2}$/)
   startDate?: string;
 
   @ValidateIf((_, value) => value !== undefined)
@@ -37,4 +38,8 @@ export class UpdateFixedCostDto {
   @ValidateIf((_, value) => value !== undefined)
   @IsBoolean()
   isActive?: boolean;
+
+  @ValidateIf((_, value) => value !== undefined)
+  @IsString()
+  userId?: string;
 }

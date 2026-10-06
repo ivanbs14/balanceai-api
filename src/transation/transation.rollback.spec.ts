@@ -22,6 +22,7 @@ describeWithDatabase("installment creation in isolated PostgreSQL", () => {
 
     prisma = new PrismaClient({ datasources: { db: { url: databaseUrl } } });
     await prisma.$connect();
+    await prisma.user.create({ data: { id: "tech008-test-user", name: "Teste fictício", document: `tech008-${Date.now()}`, email: `tech008-${Date.now()}@example.test`, password: "unused" } });
     service = new TransationService(
       prisma as PrismaService,
       {} as FixedCostService,
@@ -53,6 +54,7 @@ describeWithDatabase("installment creation in isolated PostgreSQL", () => {
     await prisma.transation.deleteMany({
       where: { name: { in: [rollbackName, successName] } },
     });
+    await prisma.user.delete({ where: { id: "tech008-test-user" } });
     await prisma.$disconnect();
   });
 

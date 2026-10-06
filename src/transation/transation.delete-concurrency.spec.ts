@@ -29,6 +29,10 @@ describeWithDatabase(
       }
       prisma = new PrismaClient({ datasources: { db: { url: databaseUrl } } });
       await prisma.$connect();
+      await prisma.user.createMany({ data: [
+        { id: userId, name: "Teste A", document: userId, email: `${userId}@example.test`, password: "unused" },
+        { id: otherUserId, name: "Teste B", document: otherUserId, email: `${otherUserId}@example.test`, password: "unused" },
+      ] });
     });
 
     afterAll(async () => {
@@ -36,6 +40,7 @@ describeWithDatabase(
       await prisma.transation.deleteMany({
         where: { installmentGroupId: groupId },
       });
+      await prisma.user.deleteMany({ where: { id: { in: [userId, otherUserId] } } });
       await prisma.$disconnect();
     });
 
@@ -70,6 +75,7 @@ describeWithDatabase(
       });
 
       const servicePrisma = {
+        fixedCostMonthly: { count: (args: Prisma.FixedCostMonthlyCountArgs) => prisma.fixedCostMonthly.count(args) },
         transation: {
           findUnique: (args: Prisma.TransationFindUniqueArgs) =>
             prisma.transation.findUnique(args),

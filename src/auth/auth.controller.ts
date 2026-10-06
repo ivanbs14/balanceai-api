@@ -7,6 +7,7 @@ import {
   Post,
   Res,
   UnauthorizedException,
+  ConflictException,
   UseGuards,
 } from "@nestjs/common";
 import { Request, Response } from "express";
@@ -17,8 +18,10 @@ import { CurrentUser } from "./current-user.decorator";
 import { AuthPayload } from "./auth.types";
 import { UserService } from "../user/service";
 import { RateLimitService } from "../security/rate-limit.service";
+import { LinkGoogleDto } from "./dto/link-google.dto";
 
 const GOOGLE_OAUTH_STATE_COOKIE = "balance_google_oauth_state";
+const GOOGLE_LINK_COOKIE = "balance_google_link";
 const AUTH_COOKIE_MAX_AGE_SECONDS = 60 * 60 * 24 * 7;
 
 function getCookieSameSite() {
@@ -43,7 +46,11 @@ function readCookieValue(cookieHeader: string | undefined, cookieName: string) {
     return undefined;
   }
 
-  return decodeURIComponent(cookiePair.slice(cookieName.length + 1));
+  try {
+    return decodeURIComponent(cookiePair.slice(cookieName.length + 1));
+  } catch {
+    return undefined;
+  }
 }
 
 function buildAuthCookie(token: string) {
@@ -110,6 +117,14 @@ function buildExpiredOauthStateCookie() {
   return cookieParts.join("; ");
 }
 
+function buildGoogleLinkCookie(token: string) {
+  return `${GOOGLE_LINK_COOKIE}=${encodeURIComponent(token)}; HttpOnly; Path=/auth/google; SameSite=${getCookieSameSite()}; Max-Age=600${shouldUseSecureCookie() ? "; Secure" : ""}`;
+}
+
+function buildExpiredGoogleLinkCookie() {
+  return `${GOOGLE_LINK_COOKIE}=; HttpOnly; Path=/auth/google; SameSite=${getCookieSameSite()}; Max-Age=0${shouldUseSecureCookie() ? "; Secure" : ""}`;
+}
+
 function getFrontendBaseUrl() {
   return process.env.FRONTEND_URL ?? "http://localhost:3000";
 }
@@ -160,8 +175,24 @@ export class AuthController {
     const authorizationUrl =
       this.authService.buildGoogleAuthorizationUrl(state);
 
-    res.setHeader("Set-Cookie", buildOauthStateCookie(state));
+    res.setHeader("Set-Cookie", [buildOauthStateCookie(state), buildExpiredGoogleLinkCookie()]);
     return res.redirect(authorizationUrl);
+  }
+
+  @Post("google/link")
+  @UseGuards(CookieAuthGuard)
+  async startGoogleLink(
+    @Body() data: LinkGoogleDto,
+    @CurrentUser() user: AuthPayload,
+    @Req() request: Request,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    this.rateLimit.checkOAuth(request.ip || request.socket.remoteAddress || "unknown");
+    const state = this.authService.generateOauthState();
+    const token = await this.authService.issueGoogleLinkToken(user.userId, data.currentPassword, state);
+    const authorizationUrl = this.authService.buildGoogleAuthorizationUrl(state);
+    res.setHeader("Set-Cookie", [buildOauthStateCookie(state), buildGoogleLinkCookie(token)]);
+    return { authorizationUrl };
   }
 
   @Get("google/callback")
@@ -178,9 +209,10 @@ export class AuthController {
       request.headers.cookie,
       GOOGLE_OAUTH_STATE_COOKIE,
     );
+    const linkToken = readCookieValue(request.headers.cookie, GOOGLE_LINK_COOKIE);
 
     if (!code || !state || !expectedState || state !== expectedState) {
-      res.setHeader("Set-Cookie", buildExpiredOauthStateCookie());
+      res.setHeader("Set-Cookie", [buildExpiredOauthStateCookie(), buildExpiredGoogleLinkCookie()]);
       return res.redirect(buildFrontendErrorUrl("google_state_invalid"));
     }
 
@@ -189,22 +221,25 @@ export class AuthController {
         await this.authService.exchangeGoogleCodeForAccessToken(code);
       const profile = await this.authService.fetchGoogleProfile(accessToken);
 
-      if (profile.email_verified === false) {
+      if (profile.email_verified !== true) {
         throw new UnauthorizedException("Conta Google sem e-mail verificado");
       }
 
-      const user = await this.authService.findOrCreateGoogleUser(profile);
+      const user = linkToken
+        ? await this.authService.linkGoogleUser(this.authService.verifyGoogleLinkToken(linkToken, state), profile)
+        : await this.authService.findOrCreateGoogleUser(profile);
       const token = this.authService.issueToken(user);
 
       res.setHeader("Set-Cookie", [
         buildAuthCookie(token),
         buildExpiredOauthStateCookie(),
+        buildExpiredGoogleLinkCookie(),
       ]);
 
       return res.redirect(getFrontendBaseUrl());
-    } catch {
-      res.setHeader("Set-Cookie", buildExpiredOauthStateCookie());
-      return res.redirect(buildFrontendErrorUrl("google_login_failed"));
+    } catch (error) {
+      res.setHeader("Set-Cookie", [buildExpiredOauthStateCookie(), buildExpiredGoogleLinkCookie()]);
+      return res.redirect(buildFrontendErrorUrl(error instanceof ConflictException ? "google_link_required" : "google_login_failed"));
     }
   }
 

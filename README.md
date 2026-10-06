@@ -1,5 +1,7 @@
 # Balance API
 
+> Estado em 06/10/2026: a API e o web receberam os contratos financeiros, de datas, integridade e OAuth descritos abaixo. A frente de IA está pausada; referências históricas a ela neste arquivo não são instruções de ativação nem critérios de validação atual.
+
 NestJS + Prisma API for the Balance application. The service handles users, cookie-based authentication, cards, transactions, and fixed costs on top of PostgreSQL.
 
 ## Stack
@@ -20,7 +22,7 @@ NestJS + Prisma API for the Balance application. The service handles users, cook
 
 ## Requirements
 
-- Node.js 18+ 
+- Node.js 20+
 - npm
 - PostgreSQL
 - A `.env` file with the required variables
@@ -52,11 +54,11 @@ LOG_LEVEL=info
 Notes:
 
 - `DATABASE_URL` is required by Prisma.
-- `JWT_SECRET` is required by the `JwtModule`.
+- `JWT_SECRET` must contain at least 32 characters.
 - `FRONTEND_URL` is used as the redirect target after Google login.
 - `FRONTEND_URLS` can include extra origins (comma-separated) for CORS.
 - `TRUST_PROXY_HOPS` controls how many trusted reverse proxy hops Express uses for client IPs; keep `0` when the API is exposed directly and set the actual hop count behind a trusted proxy.
-- `GEMINI_API_KEY` is optional. Without it, the API starts normally, cached feedback remains readable and new AI generation returns 503 with `AI_NOT_CONFIGURED`. `GEMINI_MODEL` defaults to `gemini-3.6-flash`; generation uses `@google/genai` and has a 10-second total retry budget. A working provider call still needs validation with a configured key.
+- A frente de IA está pausada. `GEMINI_API_KEY` e `GEMINI_MODEL` permanecem apenas por compatibilidade histórica; não são requisitos do fluxo ativo.
 - Auth cookies are named `balance_auth`.
 - `LOG_LEVEL` accepts `error`, `warn`, `info`, or `debug`; the default is `info` in every environment. Invalid values also fall back to `info`.
 
@@ -78,9 +80,9 @@ HTTP serialization permits only `requestId`, `method`, route pattern `path`, `st
 
 ## Financial summary
 
-`totalValues.totalExpenses` and `realizedExpenses` include paid expense transactions and paid fixed-cost monthlies. `forecastExpenses` includes pending expense transactions and pending fixed-cost monthlies, including recurring projections. `balance` is available cash after deposits, investment contributions, paid expenses withdrawn from cash, and paid fixed costs. `investedPosition` is contributions less paid expenses withdrawn from investments. `projectedBalance` also subtracts pending cash expenses and fixed-cost forecasts. `totalInvestments` remains as a compatibility alias for invested position. The web shows paid expenses, forecast expenses, available cash, and invested position separately.
+`totalValues.totalExpenses` and `realizedExpenses` include paid expense transactions and paid fixed-cost monthlies **without a linked transaction**. `forecastExpenses` includes pending expense transactions and unlinked pending fixed-cost monthlies, including recurring projections. `balance` is available cash after deposits, investment contributions, paid expenses withdrawn from cash, and paid unlinked fixed costs. `investedPosition` is contributions less paid expenses withdrawn from investments. `projectedBalance` also subtracts pending cash expenses and unlinked fixed-cost forecasts. `totalInvestments` remains as a compatibility alias for invested position. The web shows paid expenses, forecast expenses, available cash, and invested position separately.
 
-Editing an installment group changes only pending parcels. The group-summary endpoint returns the pending amount, start date and count plus `paidInstallments`; a fully paid group returns 409. For a mixed group, edit `amount` and `installments` refer to the pending portion, and paid rows retain their historical fields. Historical transaction and fixed-cost monthly records are independent unless reconciled by the operator; identical names or amounts are not automatically treated as one payment.
+Editing an installment group changes only pending parcels. The group-summary endpoint returns the pending amount, start date and count plus `paidInstallments`; a fully paid group returns 409. For a mixed group, edit `amount` and `installments` refer to the pending portion, and paid rows retain their historical fields. A group with any parcel linked to a fixed-cost monthly must be unlinked before editing. Historical transaction and fixed-cost monthly records remain independent until linked explicitly; identical names or amounts are never treated automatically as one payment.
 
 The read-only inventory query at [`prisma/audits/fixed-cost-overlap.sql`](./prisma/audits/fixed-cost-overlap.sql) lists possible overlaps between expense transactions and persisted or projected fixed-cost monthlies for an explicitly selected month range. It matches the same owner, month, and category when either the amount or normalized name matches, so recurring amounts may vary. It only identifies candidates; each pair requires review before any data repair. Run it with `psql -v from_month=YYYY-MM -v to_month=YYYY-MM` against an authorized database.
 
@@ -160,7 +162,7 @@ docker compose build api
 Notes:
 
 - The container expects a valid `balance-api/.env`.
-- `DATABASE_URL` should keep pointing to the cloud PostgreSQL instance.
+- `DATABASE_URL` deve apontar para uma base local isolada durante desenvolvimento e testes. Nunca reutilize a URL de produção para testes, importação ou reparos.
 - The image includes `openssl` because Prisma depends on it at runtime.
 - The API remains exposed on `http://localhost:4000`.
 
@@ -180,8 +182,7 @@ npm run start:deploy
 
 Keep `NODE_ENV=production` in runtime.
 
-The deploy start command runs `prisma migrate deploy` before booting the API, so
-the runtime database stays aligned with committed Prisma migrations.
+`start:deploy` inicia apenas a API. Execute `prisma migrate deploy` em um job separado, uma vez por implantação, após auditar e preparar os dados existentes. O estágio Docker `migrate` inclui a CLI do Prisma; as réplicas do estágio `production` apenas iniciam a aplicação.
 
 ## Browser origin checks and request limits
 
@@ -255,6 +256,7 @@ This is a route-level overview based on the current controllers.
 - `POST /auth`
 - `GET /auth/google`
 - `GET /auth/google/callback`
+- `POST /auth/google/link` (sessão local e senha atual)
 - `GET /auth/me`
 - `POST /auth/logout`
 
@@ -299,6 +301,8 @@ This is a route-level overview based on the current controllers.
 - `GET /fixed-costs/:id`
 - `PATCH /fixed-costs/:id`
 - `PATCH /fixed-costs/:id/monthly/:competence`
+- `POST /fixed-costs/:id/monthly/:competence/link`
+- `DELETE /fixed-costs/:id/monthly/:competence/link`
 - `DELETE /fixed-costs/:id`
 
 ## Tests
@@ -313,3 +317,36 @@ npm run test:cov
 
 - Product documentation: https://docs.google.com/document/d/17rePauq0_ZV_9Q0b4VyD2bokxDuFkM01_2yfYdHfq94/edit?tab=t.0#heading=h.sz7lo2na1m5b
 - Heroku deployment notes: https://docs.google.com/document/d/19CIUUAZKRo5f1jjcauN3FW-675eV44UdtVbwlP_uDok/edit?tab=t.0
+
+## Contrato ativo da TECH-004 (06/10/2026)
+
+Datas de domínio usam `YYYY-MM-DD` como **dia civil**. A API armazena esse dia à meia-noite UTC e aplica intervalos `[início do mês, início do mês seguinte)`; a competência é `YYYY-MM`. `paidAt` é um instante e pode cair após a competência. Uma recorrência com vencimento 29, 30 ou 31 vence no último dia dos meses mais curtos. Datas impossíveis e meses 00/13 geram 400.
+
+Os valores monetários enviados em JSON são strings decimais positivas com duas casas, como `"100.00"`. `POST /transations`, `POST /fixed-costs` e alterações usam o usuário do cookie; `userId` legado só é aceito se for igual ao da sessão. Rotas legadas `/transations/.../:userId/...` permanecem, mas rejeitam outro titular com 403. A listagem mensal aceita `page` positivo e `pageSize` entre 1 e 100, com ordenação estável e limite explícito. A grafia pública `transations` e os enums existentes continuam válidos; não existe alias `/transactions` nesta versão.
+
+`POST /fixed-costs/:id/monthly/:competence/link` recebe `{ "transactionId": "id-da-despesa" }`. A API cria a mensalidade projetada se necessário, valida titular e competência, e grava vínculo único 1:1. `DELETE` na mesma rota remove só o vínculo. `GET /fixed-costs?month=YYYY-MM` devolve `monthly.transactionId` e `monthly.dueDate`. Com vínculo, apenas a transação entra nos totais financeiro, anual e por categoria; sem vínculo, a mensalidade continua como obrigação própria. A quitação e o valor da mensalidade vinculada seguem a transação. A exclusão direta de transação vinculada retorna 409.
+
+O login Google exige `email_verified` e identidade por `googleSub`; e-mail igual não vincula contas automaticamente. O titular de uma conta local confirma a senha em `POST /auth/google/link` para iniciar um vínculo explícito, com estado temporário em cookie `HttpOnly`. Perfis Google novos podem existir sem documento ou senha local. Contas históricas precisam de inventário por ID antes de qualquer reconciliação.
+
+Exemplo de request com IDs **fictícios** e cookie de uma conta de teste:
+
+```http
+POST /fixed-costs/fixed-test/monthly/2026-10/link HTTP/1.1
+Origin: http://localhost:3000
+Content-Type: application/json
+Cookie: balance_auth=<cookie-de-teste>
+
+{"transactionId":"expense-test"}
+```
+
+A resposta bem-sucedida contém, entre outros campos, `{"fixedCostId":"fixed-test","competence":"2026-10","transactionId":"expense-test","status":"PENDING","amount":"100.00"}`. Uma despesa de outro titular ou mês recebe 400; uma transação já vinculada recebe 409. Em rotas legadas, `:userId` diferente do usuário da sessão recebe 403 com `statusCode` e `message`, sem revelar dados de outra conta. O exemplo é de contrato, não uma operação em banco real.
+
+No importador CSV, `--dry-run` não grava nem no modo `--repair-fixed`; `--sync-user` substitui o histórico do titular informado e exige backup e revisão prévia, mesmo em base fictícia. A operação é recusada quando qualquer transação desse titular está vinculada a uma mensalidade. A suíte `test/import-bkpcsv.postgres-spec.ts` cobre esses modos com CSV fictício.
+
+### Setup e provas com banco isolado
+
+Use Node 20 e PostgreSQL 16 em uma base **exclusiva para testes**, por exemplo `balance_test`. Configure `DATABASE_URL`, `TEST_DATABASE_URL`, `JWT_SECRET` de 32 caracteres e `FRONTEND_URL` local; habilite o OAuth somente com `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` e `GOOGLE_REDIRECT_URI` juntos. Execute `npm ci`, `npx prisma validate`, `npx prisma generate` e `npx prisma migrate deploy`. Uma base existente deve ser auditada antes da migration incremental com `prisma/audits/financial-integrity.sql` e `prisma/audits/legacy-groups.sql`; a migration aborta ao encontrar órfãos ou cartão de outro titular. Faça backup e planeje reparos por ID antes de qualquer upgrade real.
+
+Verificações locais sem mutação do código: `npm run lint`, `npm run format:check`, `npm run build`, `npm run test -- --runInBand --watchman=false --testPathIgnorePatterns=ai-feedback`, `npm run test:e2e -- --runInBand --watchman=false` e `npm run test:integration`. Para ativar os testes PostgreSQL históricos, aponte `TECH008_DATABASE_URL`, `TECH011_DATABASE_URL`, `TECH014_DATABASE_URL` e `TECH015_DATABASE_URL` para a **mesma base isolada**. `test:integration` exige `TEST_DATABASE_URL` e aborta se a URL não indicar `balance_test` em host local. O workflow de CI usa PostgreSQL temporário e executa também `scripts/check-populated-upgrade.sh` com fixture fictícia. `format:check` cobre os módulos novos de configuração/data e a nova suíte PostgreSQL; a formatação integral do legado segue pendente.
+
+O build do Docker de produção e o encerramento por `SIGTERM` ainda precisam de execução em ambiente que consiga obter a imagem base. A migration de produção é uma etapa separada do startup. O inventário e os reparos de dados reais exigem plano específico; nenhuma migração foi aplicada a dados reais nesta rodada.

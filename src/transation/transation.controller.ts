@@ -1,5 +1,5 @@
 /* eslint-disable prettier/prettier */
-import { Body, Controller, Delete, Get, Param, Patch, Post, Put, Query, UseGuards } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Delete, ForbiddenException, Get, Param, Patch, Post, Put, Query, UseGuards } from '@nestjs/common';
 import { TransationService } from './transation.service';
 import { TransationPaymentStatus } from '@prisma/client';
 import { CreateTransationDto } from './dto/create-transation.dto';
@@ -15,11 +15,26 @@ import { AuthPayload } from '../auth/auth.types';
 export class TransationController {
   constructor(private readonly transationService: TransationService) {}
 
+  private assertLegacyUser(userId: string, user: AuthPayload) {
+    if (userId !== user.userId) throw new ForbiddenException('Usuário da rota difere da sessão.');
+  }
+
+  private parsePage(value: string | undefined, fallback: number, max: number) {
+    if (value === undefined) return fallback;
+    if (!/^[1-9]\d*$/.test(value)) throw new BadRequestException('Paginação inválida.');
+    const parsed = Number(value);
+    if (!Number.isSafeInteger(parsed) || parsed > max) throw new BadRequestException('Paginação inválida.');
+    return parsed;
+  }
+
   @Post()
   async create(
     @Body() data: CreateTransationDto,
     @CurrentUser() user: AuthPayload,
   ) {
+    if (data.userId !== undefined && data.userId !== user.userId) {
+      throw new ForbiddenException('Usuário do payload difere da sessão.');
+    }
     return this.transationService.create({
       ...data,
       userId: user.userId,
@@ -33,25 +48,29 @@ export class TransationController {
 
   @Get('previous-date/:userId/:date')
   async getAllBalanceDate(
+    @Param('userId') legacyUserId: string,
     @Param('date') date: string,
     @CurrentUser() user: AuthPayload,
   ) {
+    this.assertLegacyUser(legacyUserId, user);
     return this.transationService.getAllBalance(user.userId, date);
   }
 
   @Get('user/:userId/:month')
   async findByUserIdAndMonth(
+    @Param('userId') legacyUserId: string,
     @Param('month') month: string,
-    @Query('page') page: number = 1,
-    @Query('pageSize') pageSize: number = 10,
+    @Query('page') page?: string,
+    @Query('pageSize') pageSize?: string,
     @Query('paymentStatus') paymentStatus?: TransationPaymentStatus,
     @CurrentUser() user?: AuthPayload,
   ) {
+    this.assertLegacyUser(legacyUserId, user!);
     return this.transationService.findByUserIdAndMonth(
       user!.userId,
       month,
-      Number(page),
-      Number(pageSize),
+      this.parsePage(page, 1, 21474836),
+      this.parsePage(pageSize, 10, 100),
       paymentStatus,
     );
   };
@@ -67,22 +86,27 @@ export class TransationController {
   
   @Get('card/:userId/:date')
   async getTopCreditCardsByMonth(
+    @Param('userId') legacyUserId: string,
     @Param('date') date: string,
     @CurrentUser() user: AuthPayload,
   ) {
+    this.assertLegacyUser(legacyUserId, user);
     return this.transationService.getTopCreditCardsByMonth(user.userId, date);
   }
 
   @Get('dashboard/:userId/:month')
   async getDashboardMonthlyData(
+    @Param('userId') legacyUserId: string,
     @Param('month') month: string,
     @CurrentUser() user: AuthPayload,
   ) {
+    this.assertLegacyUser(legacyUserId, user);
     return this.transationService.getDashboardMonthlyData(user.userId, month);
   }
 
   @Get('card-names/:userId')
-  async getUniqueCreditCardNames(@CurrentUser() user: AuthPayload): Promise<string[]> {
+  async getUniqueCreditCardNames(@Param('userId') legacyUserId: string, @CurrentUser() user: AuthPayload): Promise<string[]> {
+    this.assertLegacyUser(legacyUserId, user);
     return this.transationService.getUniqueCreditCardNames(user.userId);
   }
 

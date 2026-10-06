@@ -1,5 +1,5 @@
 /* eslint-disable prettier/prettier */
-import { INestApplication } from '@nestjs/common';
+import { INestApplication, ValidationPipe } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import * as request from 'supertest';
 import { CookieAuthGuard } from '../src/auth/cookie-auth.guard';
@@ -26,6 +26,12 @@ describe('TransationController (e2e)', () => {
     card: {
       findUnique: jest.fn(),
     },
+    fixedCostMonthly: {
+      count: jest.fn().mockResolvedValue(0),
+      findUnique: jest.fn().mockResolvedValue(null),
+      updateMany: jest.fn().mockResolvedValue({ count: 0 }),
+    },
+    $transaction: jest.fn(async (callback: any) => callback(prismaMock)),
   } as any;
 
   const fixedCostServiceMock = {
@@ -61,6 +67,7 @@ describe('TransationController (e2e)', () => {
     const moduleFixture: TestingModule = await moduleBuilder.compile();
 
     app = moduleFixture.createNestApplication();
+    app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true }));
     await app.init();
   });
 
@@ -166,7 +173,7 @@ describe('TransationController (e2e)', () => {
     await request(app.getHttpServer())
       .post('/transations')
       .send({
-        userId: 'user-2',
+        userId: 'user-1',
         name: 'Salario',
         type: 'DEPOSIT',
         amount: '1500.00',
@@ -188,6 +195,18 @@ describe('TransationController (e2e)', () => {
     });
   });
 
+  it('rejects divergent legacy owner, invalid money and abusive pagination', async () => {
+    const payload = { name: 'Salario', type: 'DEPOSIT', amount: '1500.00', category: 'SALARY', paymentMethod: 'PIX', Date: '2026-06-08' };
+    await request(app.getHttpServer()).post('/transations').send({ ...payload, userId: 'user-2' }).expect(403);
+    for (const amount of ['0.00', '-1.00', '100000000.00']) {
+      await request(app.getHttpServer()).post('/transations').send({ ...payload, amount }).expect(400);
+    }
+    await request(app.getHttpServer()).get('/transations/user/user-2/2026-06').expect(403);
+    await request(app.getHttpServer()).get('/transations/user/user-1/2026-06?pageSize=101').expect(400);
+    await request(app.getHttpServer()).get('/transations/user/user-1/2026-13').expect(400);
+    expect(prismaMock.transation.create).not.toHaveBeenCalled();
+  });
+
   it('POST /transations should create an investment for the authenticated user', async () => {
     prismaMock.transation.create.mockResolvedValue({
       id: 'tx-invest',
@@ -199,7 +218,7 @@ describe('TransationController (e2e)', () => {
     await request(app.getHttpServer())
       .post('/transations')
       .send({
-        userId: 'user-2',
+        userId: 'user-1',
         name: 'Tesouro Selic',
         type: 'INVESTMENT',
         amount: '350.00',

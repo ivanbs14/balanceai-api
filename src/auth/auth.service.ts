@@ -1,8 +1,9 @@
-import { Injectable, UnauthorizedException } from "@nestjs/common";
+import { ConflictException, Injectable, UnauthorizedException } from "@nestjs/common";
 import * as bcrypt from "bcrypt";
 import { randomBytes } from "crypto";
 import { JwtService } from "@nestjs/jwt";
 import { PrismaService } from "../prisma-services/prisma.service";
+import { Prisma } from "@prisma/client";
 import { AuthPayload, AuthUser } from "./auth.types";
 
 type GoogleTokenResponse = {
@@ -11,7 +12,7 @@ type GoogleTokenResponse = {
   error_description?: string;
 };
 
-type GoogleUserProfile = {
+export type GoogleUserProfile = {
   sub?: string;
   email?: string;
   name?: string;
@@ -45,7 +46,7 @@ export class AuthService {
       throw new UnauthorizedException("E-mail ou senha incorretos");
     }
 
-    const passwordMatch = await bcrypt.compare(password, user.password);
+    const passwordMatch = user.password ? await bcrypt.compare(password, user.password) : false;
     if (!passwordMatch) {
       throw new UnauthorizedException("E-mail ou senha incorretos");
     }
@@ -70,6 +71,24 @@ export class AuthService {
 
   generateOauthState(): string {
     return randomBytes(24).toString("hex");
+  }
+
+  async issueGoogleLinkToken(userId: string, password: string, state: string): Promise<string> {
+    const user = await this.prisma.user.findUnique({ where: { id: userId }, select: { password: true } });
+    if (!user?.password || !(await bcrypt.compare(password, user.password))) {
+      throw new UnauthorizedException("Senha atual incorreta.");
+    }
+    return this.jwtService.sign({ kind: "google-link", userId, state }, { expiresIn: "10m" });
+  }
+
+  verifyGoogleLinkToken(token: string, state: string): string {
+    try {
+      const claims = this.jwtService.verify<{ kind: string; userId: string; state: string }>(token);
+      if (claims.kind !== "google-link" || claims.state !== state || !claims.userId) throw new Error();
+      return claims.userId;
+    } catch {
+      throw new UnauthorizedException("Vínculo Google expirado ou inválido.");
+    }
   }
 
   buildGoogleAuthorizationUrl(state: string): string {
@@ -129,6 +148,7 @@ export class AuthService {
         "Content-Type": "application/x-www-form-urlencoded",
       },
       body: body.toString(),
+      signal: AbortSignal.timeout(10000),
     });
 
     const data = (await response.json().catch(() => null)) as
@@ -137,7 +157,7 @@ export class AuthService {
 
     if (!response.ok || !data?.access_token) {
       throw new UnauthorizedException(
-        data?.error_description ?? "Nao foi possivel autenticar com Google",
+        "Nao foi possivel autenticar com Google",
       );
     }
 
@@ -149,13 +169,14 @@ export class AuthService {
       headers: {
         Authorization: `Bearer ${accessToken}`,
       },
+      signal: AbortSignal.timeout(10000),
     });
 
     const profile = (await response.json().catch(() => null)) as
       | GoogleUserProfile
       | null;
 
-    if (!response.ok || !profile?.email || !profile?.sub) {
+    if (!response.ok || !profile?.email || !profile?.sub || profile.email_verified !== true) {
       throw new UnauthorizedException("Perfil Google invalido");
     }
 
@@ -163,12 +184,12 @@ export class AuthService {
   }
 
   async findOrCreateGoogleUser(profile: GoogleUserProfile): Promise<AuthUser> {
-    if (!profile.email || !profile.sub) {
+    if (!profile.email || !profile.sub || profile.email_verified !== true) {
       throw new UnauthorizedException("Perfil Google invalido");
     }
 
     const existingUser = await this.prisma.user.findUnique({
-      where: { email: profile.email },
+      where: { googleSub: profile.sub },
       select: {
         id: true,
         name: true,
@@ -177,31 +198,39 @@ export class AuthService {
       },
     });
 
-    if (existingUser) {
-      return existingUser;
+    if (existingUser) return existingUser;
+
+    if (await this.prisma.user.findUnique({ where: { email: profile.email }, select: { id: true } })) {
+      throw new ConflictException("Entre com a conta local e vincule o Google explicitamente.");
     }
 
     const fallbackName = profile.name?.trim() || profile.email.split("@")[0];
-    const randomPassword = randomBytes(32).toString("hex");
-    const hashedPassword = await bcrypt.hash(randomPassword, 10);
-    const generatedDocument = `google-${profile.sub}`;
+    try {
+      return await this.prisma.user.create({
+        data: { name: fallbackName, email: profile.email, googleSub: profile.sub, role: "user" },
+        select: { id: true, name: true, email: true, role: true },
+      });
+    } catch (error) {
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+        const sameSub = await this.prisma.user.findUnique({ where: { googleSub: profile.sub }, select: { id: true, name: true, email: true, role: true } });
+        if (sameSub) return sameSub;
+        throw new ConflictException("E-mail já pertence a outra conta.");
+      }
+      throw error;
+    }
+  }
 
-    const createdUser = await this.prisma.user.create({
-      data: {
-        name: fallbackName,
-        document: generatedDocument,
-        email: profile.email,
-        password: hashedPassword,
-        role: "user",
-      },
-      select: {
-        id: true,
-        name: true,
-        email: true,
-        role: true,
-      },
-    });
-
-    return createdUser;
+  async linkGoogleUser(userId: string, profile: GoogleUserProfile): Promise<AuthUser> {
+    if (!profile.sub || !profile.email || profile.email_verified !== true) throw new UnauthorizedException("Perfil Google inválido.");
+    const existing = await this.prisma.user.findUnique({ where: { googleSub: profile.sub }, select: { id: true } });
+    if (existing && existing.id !== userId) throw new ConflictException("Identidade Google já vinculada.");
+    const target = await this.prisma.user.findUnique({ where: { id: userId }, select: { googleSub: true } });
+    if (!target || (target.googleSub && target.googleSub !== profile.sub)) throw new ConflictException("Conta já vinculada a outra identidade Google.");
+    try {
+      return await this.prisma.user.update({ where: { id: userId }, data: { googleSub: profile.sub }, select: { id: true, name: true, email: true, role: true } });
+    } catch (error) {
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") throw new ConflictException("Identidade Google já vinculada.");
+      throw error;
+    }
   }
 }

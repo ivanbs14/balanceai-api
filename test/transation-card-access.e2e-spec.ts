@@ -70,11 +70,14 @@ describe("Transaction card ownership (HTTP, fake persistence)", () => {
         return { count: before - transactions.length };
       }),
     },
+    fixedCostMonthly: {
+      count: jest.fn(async () => 0),
+    },
     $transaction: jest.fn(async (callback) => callback(prisma)),
   };
 
   const expense = (overrides: Record<string, unknown> = {}) => ({
-    userId: "user-b", // Forged owner must not affect the session identity.
+    userId: "user-a",
     name: "Notebook",
     type: "EXPENSE",
     amount: "120.00",
@@ -249,7 +252,7 @@ describe("Transaction card ownership (HTTP, fake persistence)", () => {
     await request(app.getHttpServer())
       .post("/transations")
       .set("Cookie", cookieB)
-      .send(expense({ cardId: "card-a" }))
+      .send(expense({ userId: "user-b", cardId: "card-a" }))
       .expect(400);
     expect(transactions).toHaveLength(0);
   });

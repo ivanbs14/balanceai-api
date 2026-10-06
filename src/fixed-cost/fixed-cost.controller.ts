@@ -6,6 +6,7 @@ import { CurrentUser } from '../auth/current-user.decorator';
 import { CreateFixedCostDto } from './dto/create-fixed-cost.dto';
 import { UpdateFixedCostDto } from './dto/update-fixed-cost.dto';
 import { UpdateFixedCostMonthlyDto } from './dto/update-fixed-cost-monthly.dto';
+import { LinkFixedCostMonthlyDto } from './dto/link-fixed-cost-monthly.dto';
 import { FixedCostService } from './fixed-cost.service';
 
 @Controller('fixed-costs')
@@ -15,6 +16,7 @@ export class FixedCostController {
 
   @Post()
   create(@Body() data: CreateFixedCostDto, @CurrentUser() user: AuthPayload) {
+    if (data.userId !== undefined && data.userId !== user.userId) throw new ForbiddenException();
     return this.fixedCostService.create(data, user.userId);
   }
 
@@ -32,6 +34,7 @@ export class FixedCostController {
 
   @Patch(':id')
   update(@Param('id') id: string, @Body() data: UpdateFixedCostDto, @CurrentUser() user: AuthPayload) {
+    if (data.userId !== undefined && data.userId !== user.userId) throw new ForbiddenException();
     return this.fixedCostService.update(id, user.userId, data);
   }
 
@@ -42,7 +45,27 @@ export class FixedCostController {
     @Body() data: UpdateFixedCostMonthlyDto,
     @CurrentUser() user: AuthPayload,
   ) {
+    if (data.userId !== undefined && data.userId !== user.userId) throw new ForbiddenException();
     return this.fixedCostService.updateMonthly(id, user.userId, competence, data);
+  }
+
+  @Post(':id/monthly/:competence/link')
+  linkMonthly(
+    @Param('id') id: string,
+    @Param('competence') competence: string,
+    @Body() data: LinkFixedCostMonthlyDto,
+    @CurrentUser() user: AuthPayload,
+  ) {
+    return this.fixedCostService.linkMonthly(id, user.userId, competence, data.transactionId);
+  }
+
+  @Delete(':id/monthly/:competence/link')
+  unlinkMonthly(
+    @Param('id') id: string,
+    @Param('competence') competence: string,
+    @CurrentUser() user: AuthPayload,
+  ) {
+    return this.fixedCostService.unlinkMonthly(id, user.userId, competence);
   }
 
   @Delete(':id')

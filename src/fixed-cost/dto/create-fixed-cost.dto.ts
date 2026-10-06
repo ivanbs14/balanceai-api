@@ -1,13 +1,14 @@
 /* eslint-disable prettier/prettier */
-import { IsBoolean, IsDateString, IsDecimal, IsEnum, IsInt, IsNotEmpty, IsOptional, IsString, Max, Min } from 'class-validator';
+import { IsBoolean, IsEnum, IsInt, IsNotEmpty, IsOptional, IsString, Matches, Max, Min, ValidateIf } from 'class-validator';
 import { FixedCostRecurrence, TransationCategory, TransationPaymentMethod } from '@prisma/client';
+import { POSITIVE_MONEY_PATTERN } from '../../common/money';
 
 export class CreateFixedCostDto {
   @IsString()
   @IsNotEmpty({ message: 'O nome do custo fixo é obrigatório.' })
   name: string;
 
-  @IsDecimal({ decimal_digits: '2', force_decimal: true }, { message: 'O valor padrão deve ser um número decimal com 2 casas decimais.' })
+  @Matches(POSITIVE_MONEY_PATTERN)
   defaultAmount: string;
 
   @IsEnum(TransationCategory, { message: 'A categoria informada é inválida.' })
@@ -19,7 +20,7 @@ export class CreateFixedCostDto {
   @IsEnum(FixedCostRecurrence, { message: 'A recorrência informada é inválida.' })
   recurrence: FixedCostRecurrence;
 
-  @IsDateString({}, { message: 'A data inicial deve ser uma data válida.' })
+  @Matches(/^\d{4}-(0[1-9]|1[0-2])-\d{2}$/)
   startDate: string;
 
   @IsInt({ message: 'O dia de vencimento deve ser um número inteiro.' })
@@ -30,4 +31,8 @@ export class CreateFixedCostDto {
   @IsOptional()
   @IsBoolean()
   isActive?: boolean;
+
+  @ValidateIf((_, value) => value !== undefined)
+  @IsString()
+  userId?: string;
 }

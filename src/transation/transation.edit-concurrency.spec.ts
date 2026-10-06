@@ -26,6 +26,7 @@ describeWithDatabase("pending installment edit in isolated PostgreSQL", () => {
     }
     prisma = new PrismaClient({ datasources: { db: { url: databaseUrl } } });
     await prisma.$connect();
+    await prisma.user.create({ data: { id: userId, name: "Teste fictício", document: userId, email: `${userId}@example.test`, password: "unused" } });
   });
 
   afterAll(async () => {
@@ -33,6 +34,7 @@ describeWithDatabase("pending installment edit in isolated PostgreSQL", () => {
     await prisma.transation.deleteMany({
       where: { installmentGroupId: groupId },
     });
+    await prisma.user.delete({ where: { id: userId } });
     await prisma.$disconnect();
   });
 
@@ -61,6 +63,7 @@ describeWithDatabase("pending installment edit in isolated PostgreSQL", () => {
     });
     let updates = 0;
     const servicePrisma = {
+      fixedCostMonthly: { count: (args: Prisma.FixedCostMonthlyCountArgs) => prisma.fixedCostMonthly.count(args) },
       transation: {
         findUnique: (args: Prisma.TransationFindUniqueArgs) =>
           prisma.transation.findUnique(args),
@@ -70,6 +73,9 @@ describeWithDatabase("pending installment edit in isolated PostgreSQL", () => {
       ) =>
         prisma.$transaction(async (tx) =>
           callback({
+            fixedCostMonthly: {
+              count: (args: Prisma.FixedCostMonthlyCountArgs) => tx.fixedCostMonthly.count(args),
+            },
             transation: {
               findMany: (args: Prisma.TransationFindManyArgs) =>
                 tx.transation.findMany(args),

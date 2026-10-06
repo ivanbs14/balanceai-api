@@ -41,6 +41,7 @@ describeWithDatabase("financial summary in isolated PostgreSQL", () => {
   afterAll(async () => {
     if (!prisma) return;
     await prisma.transation.deleteMany({ where: { userId } });
+    await prisma.fixedCostMonthly.deleteMany({ where: { fixedCost: { userId } } });
     await prisma.fixedCost.deleteMany({ where: { userId } });
     await prisma.user.delete({ where: { id: userId } });
     await prisma.$disconnect();

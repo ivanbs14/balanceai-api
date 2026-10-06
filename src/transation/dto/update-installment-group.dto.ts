@@ -1,6 +1,5 @@
 import {
-  IsDateString,
-  IsDecimal,
+  Matches,
   IsEnum,
   IsInt,
   IsOptional,
@@ -10,18 +9,16 @@ import {
   ValidateIf,
 } from "class-validator";
 import { TransationPaymentMethod } from "@prisma/client";
+import { POSITIVE_MONEY_PATTERN } from "../../common/money";
 
 export class UpdateInstallmentGroupDto {
   @IsString()
   name: string;
 
-  @IsDecimal(
-    { decimal_digits: "2", force_decimal: true },
-    { message: "O valor deve ser um numero decimal com 2 casas decimais." },
-  )
+  @Matches(POSITIVE_MONEY_PATTERN)
   amount: string;
 
-  @IsDateString()
+  @Matches(/^\d{4}-(0[1-9]|1[0-2])-\d{2}$/)
   Date: string;
 
   @IsInt({ message: "A quantidade de parcelas deve ser um numero inteiro." })
