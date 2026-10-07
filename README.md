@@ -199,6 +199,8 @@ Development also allows `http://localhost:3000` and `http://localhost:3001`. Ori
 
 Login is limited to 30 attempts per IP and 8 per normalized email in 15 minutes; registration to 6 per IP per hour; OAuth start and callback to 15 per IP in 15 minutes; AI generation to 30 per IP and 8 per user per hour, with 3 forced regenerations per user per hour. Excess attempts return 429. Set `TRUST_PROXY_HOPS` to the deployment's real proxy count for accurate per-IP limits. The counters live in each API process and reset on restart; a deployment with multiple replicas needs a shared limiter to enforce the same limits globally. The API accepts at most 24 installments on creation and group edits.
 
+Em 07/10/2026, o operador confirmou que a configuração do ambiente de produção foi concluída, incluindo a topologia operacional necessária para proxy, réplicas, cookies/origens e migrations separadas do startup. Valores, segredos, URLs, provedor e quantidade de réplicas não são registrados neste README. A confirmação de configuração não substitui o QA funcional de CSRF e limites de requisição no ambiente.
+
 ## Available Scripts
 
 ```bash
