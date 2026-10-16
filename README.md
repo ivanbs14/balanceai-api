@@ -1,229 +1,143 @@
-# Balance API
+# Balance AI — API
 
-NestJS + Prisma API for the Balance application. The service handles users, cookie-based authentication, cards, transactions, and fixed costs on top of PostgreSQL.
+API REST para uma aplicação de **gestão financeira pessoal**, desenvolvida com **NestJS, TypeScript, Prisma e PostgreSQL**. Centraliza autenticação, usuários, cartões, transações e despesas recorrentes, fornecendo dados ao [frontend Balance AI](https://github.com/ivanbs14/balanceai-web).
 
-## Stack
+## O que o projeto demonstra
 
-- NestJS 10
-- Prisma
-- PostgreSQL
-- JWT authentication via HTTP-only cookie
-- TypeScript
+- Arquitetura backend modular com NestJS;
+- Integração com banco relacional por meio do Prisma;
+- Autenticação com JWT em cookie HTTP-only e fluxo de login com Google;
+- Operações de criação, consulta, atualização e exclusão de registros financeiros;
+- Consultas por período, informações de cartões e custos fixos;
+- Rotinas de migração, seed e importação de dados CSV;
+- Estrutura para testes unitários e end-to-end com Jest.
 
-## Main Modules
+## Tecnologias
 
-- `auth`: email/password login, Google OAuth, current session, logout
-- `user`: user CRUD
-- `card`: card CRUD and card transaction lookups
-- `transation`: transaction CRUD, monthly filters, card summaries
-- `fixed-cost`: fixed cost CRUD and monthly status updates
+**NestJS 10 · TypeScript · Prisma 5 · PostgreSQL · JWT · Jest · bcrypt**
 
-## Requirements
+## Estrutura funcional
 
-- Node.js 18+ 
-- npm
-- PostgreSQL
-- A `.env` file with the required variables
+| Módulo | Responsabilidade |
+| --- | --- |
+| `auth` | Login, sessão, logout e autenticação Google |
+| `user` | Gerenciamento de usuários |
+| `card` | Cartões e consultas relacionadas |
+| `transation` | Transações financeiras, filtros, parcelas e consultas agregadas |
+| `fixed-cost` | Custos fixos e acompanhamento mensal |
 
-## Environment Variables
+> O nome `transation` / rota `/transations` é mantido por compatibilidade com o código existente.
 
-Create `.env` in the project root with at least:
+## Arquitetura
 
-```env
-DATABASE_URL="postgresql://USER:PASSWORD@HOST:PORT/DATABASE"
-JWT_SECRET="replace-me"
-
-# Optional but required if Google OAuth is enabled
-GOOGLE_CLIENT_ID=""
-GOOGLE_CLIENT_SECRET=""
-GOOGLE_REDIRECT_URI="http://localhost:4000/auth/google/callback"
-FRONTEND_URL="http://localhost:3000"
-
-# Optional
-PORT=4000
-NODE_ENV=development
+```text
+Frontend Next.js → API REST NestJS → Serviços / Módulos → Prisma → PostgreSQL
+            ↘ autenticação via cookie HTTP-only / JWT
 ```
 
-Notes:
+A aplicação web consome os endpoints da API para carregar dados financeiros e persistir alterações.
 
-- `DATABASE_URL` is required by Prisma.
-- `JWT_SECRET` is required by the `JwtModule`.
-- `FRONTEND_URL` is used as the redirect target after Google login.
-- Auth cookies are named `balance_auth`.
+## Primeiros passos
 
-## Installation
+**Pré-requisitos:** Node.js 18+, npm e PostgreSQL.
 
 ```bash
+git clone https://github.com/ivanbs14/balanceai-api.git
+cd balanceai-api
 npm install
 ```
 
-If you are running through the local Codex shell proxy, use:
+Crie um arquivo `.env` com os dados do seu ambiente:
 
-```bash
-rtk npm install
+```env
+DATABASE_URL="postgresql://USER:PASSWORD@HOST:5432/DATABASE"
+JWT_SECRET="substitua-por-um-segredo-forte"
+PORT=4000
+NODE_ENV=development
+FRONTEND_URL="http://localhost:3000"
+
+# Configure apenas se utilizar login com Google
+GOOGLE_CLIENT_ID=""
+GOOGLE_CLIENT_SECRET=""
+GOOGLE_REDIRECT_URI="http://localhost:4000/auth/google/callback"
 ```
 
-## Database Setup
-
-Apply migrations and generate the Prisma client:
+Execute as migrações e gere o cliente Prisma:
 
 ```bash
 npx prisma migrate dev
 npx prisma generate
 ```
 
-Seed categories and sample cards:
+Opcionalmente, popule dados de exemplo:
 
 ```bash
 npm run db:seed
 ```
 
-The seed creates:
-
-- default categories
-- a sample user: `seed@balance.local`
-- sample cards for that user
-
-## Running the API
+Suba o servidor:
 
 ```bash
-# development with watch mode
 npm run start:dev
-
-# single run
-npm run start
-
-# production build
-npm run build
-npm run start:prod
 ```
 
-By default the API listens on `http://localhost:4000`.
+A porta padrão documentada é **4000**. Não utilize credenciais e segredos reais em arquivos versionados.
 
-## CORS
+## Principais endpoints
 
-The app currently allows credentials and these frontend origins:
+| Área | Rotas e ações |
+| --- | --- |
+| Autenticação | `POST /auth`, `GET /auth/me`, `POST /auth/logout`, `GET /auth/google` |
+| Usuários | `/user` — criação, listagem, consulta, atualização e exclusão |
+| Cartões | `/cards` — gerenciamento e consulta de transações |
+| Transações | `/transations` — gerenciamento, filtros e consulta por cartão |
+| Dashboard mensal | `GET /transations/dashboard/:userId/:monthId` |
+| Status de pagamento | `PATCH /transations/:id/payment-status` |
+| Custos fixos | `/fixed-costs` — gerenciamento e status por competência |
 
-- `http://localhost:3000`
-- `http://localhost:3001`
-- `https://balance-2olb8gbo5-ivan-barbosas-projects.vercel.app`
-- `https://balance-neon.vercel.app`
+A disponibilidade de cada rota depende da versão implantada da API.
 
-## Available Scripts
+## Banco de dados e Prisma
 
-```bash
-npm run build
-npm run format
-npm run lint
-npm run test
-npm run test:e2e
-npm run test:cov
-npm run db:seed
-npm run db:import:bkpcsv
-npm run db:import:bkpcsv:dry
-npm run db:import:bkpcsv:repair-fixed
-```
-
-## Prisma Workflow
-
-When the schema changes:
+As migrações ficam em [`prisma/migrations`](./prisma/migrations).
 
 ```bash
-npx prisma migrate dev --name describe_change
+npx prisma migrate dev --name descricao_da_mudanca
 npx prisma generate
 ```
 
-Committed migrations live in [`prisma/migrations`](./prisma/migrations).
+O seed auxilia no desenvolvimento local com categorias e registros de exemplo.
 
-## CSV Import
+## Importação de CSV
 
-The repository includes a CSV importer at [`prisma/import-bkpcsv.ts`](./prisma/import-bkpcsv.ts).
-
-Examples:
+O repositório inclui a rotina `prisma/import-bkpcsv.ts`:
 
 ```bash
-# validate import without writing to the database
+# Verifica os dados sem gravar
 npm run db:import:bkpcsv:dry
 
-# execute import
+# Executa importação
 npm run db:import:bkpcsv
 
-# repair older imported transactions missing isFixed
+# Repara marcações de custos fixos em registros importados
 npm run db:import:bkpcsv:repair-fixed
-
-# target a specific user by email
-npm run db:import:bkpcsv -- --user-email=seed@balance.local
-
-# import a single year
-npm run db:import:bkpcsv -- --year=2026
-
-# custom CSV directory
-npm run db:import:bkpcsv -- --path=../dados/bkpcsv
 ```
 
-## API Summary
+Consulte as opções do script antes de importar dados reais; faça backup do banco e valide o resultado em ambiente de testes.
 
-This is a route-level overview based on the current controllers.
-
-### Auth
-
-- `POST /auth`
-- `GET /auth/google`
-- `GET /auth/google/callback`
-- `GET /auth/me`
-- `POST /auth/logout`
-
-### Users
-
-- `POST /user`
-- `GET /user`
-- `GET /user/:id`
-- `PUT /user/:id`
-- `DELETE /user/:id`
-
-### Cards
-
-- `POST /cards`
-- `GET /cards`
-- `GET /cards/:userId`
-- `GET /cards/transation/:cardId?date=YYYY-MM-DD&page=1&pageSize=10`
-- `GET /cards/transations/:id`
-- `PATCH /cards/:id`
-- `DELETE /cards/:id`
-
-### Transations
-
-- `POST /transations`
-- `GET /transations`
-- `GET /transations/previous-date/:userId/:date`
-- `GET /transations/user/:userId/:month?page=1&pageSize=10`
-- `GET /transations/card/:userId/:date`
-- `GET /transations/card-names/:userId`
-- `GET /transations/find-card/:nameCard`
-- `GET /transations/:id`
-- `PUT /transations/:id`
-- `DELETE /transations/:id`
-
-### Fixed Costs
-
-- `POST /fixed-costs`
-- `GET /fixed-costs`
-- `GET /fixed-costs?userId=<id>`
-- `GET /fixed-costs?userId=<id>&month=YYYY-MM`
-- `GET /fixed-costs/:id`
-- `PATCH /fixed-costs/:id`
-- `PATCH /fixed-costs/:id/monthly/:competence`
-- `DELETE /fixed-costs/:id`
-
-## Tests
+## Qualidade e testes
 
 ```bash
+npm run build
 npm run test
 npm run test:e2e
 npm run test:cov
 ```
 
-## Project References
+Esses comandos estão definidos no projeto; a documentação não pressupõe que todos os testes estejam passando sem executá-los no ambiente configurado.
 
-- Product documentation: https://docs.google.com/document/d/17rePauq0_ZV_9Q0b4VyD2bokxDuFkM01_2yfYdHfq94/edit?tab=t.0#heading=h.sz7lo2na1m5b
-- Heroku deployment notes: https://docs.google.com/document/d/19CIUUAZKRo5f1jjcauN3FW-675eV44UdtVbwlP_uDok/edit?tab=t.0
+## Frontend relacionado
+
+[**Balance AI Web — Next.js**](https://github.com/ivanbs14/balanceai-web)
+
+O frontend fornece a interface de autenticação, dashboard financeiro, cartões e operações de transações por meio desta API.
