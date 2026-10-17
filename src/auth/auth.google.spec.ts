@@ -31,8 +31,8 @@ describe("Google identity policy", () => {
   });
 
   it("resolves by stable sub after a Google e-mail change", async () => {
-    prisma.user.findUnique.mockResolvedValueOnce({ id: "google-1", name: "Person", email: "old@example.test", role: "user" });
-    await expect(service.findOrCreateGoogleUser({ ...profile, email: "new@example.test" })).resolves.toMatchObject({ id: "google-1" });
+    prisma.user.findUnique.mockResolvedValueOnce({ id: "google-1", name: "Person", email: "old@example.test", role: "user", googleSub: "google-sub" });
+    await expect(service.findOrCreateGoogleUser({ ...profile, email: "new@example.test" })).resolves.toMatchObject({ id: "google-1", googleLinked: true });
     expect(prisma.user.create).not.toHaveBeenCalled();
   });
 

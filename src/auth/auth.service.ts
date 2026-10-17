@@ -4,7 +4,12 @@ import { randomBytes } from "crypto";
 import { JwtService } from "@nestjs/jwt";
 import { PrismaService } from "../prisma-services/prisma.service";
 import { Prisma } from "@prisma/client";
-import { AuthPayload, AuthUser } from "./auth.types";
+import {
+  AUTH_USER_SELECT,
+  AuthPayload,
+  AuthUser,
+  toAuthUser,
+} from "./auth.types";
 
 type GoogleTokenResponse = {
   access_token?: string;
@@ -39,6 +44,7 @@ export class AuthService {
         email: true,
         password: true,
         role: true,
+        googleSub: true,
       },
     });
 
@@ -51,12 +57,7 @@ export class AuthService {
       throw new UnauthorizedException("E-mail ou senha incorretos");
     }
 
-    return {
-      id: user.id,
-      name: user.name,
-      email: user.email,
-      role: user.role,
-    };
+    return toAuthUser(user);
   }
 
   issueToken(user: AuthUser): string {
@@ -190,15 +191,10 @@ export class AuthService {
 
     const existingUser = await this.prisma.user.findUnique({
       where: { googleSub: profile.sub },
-      select: {
-        id: true,
-        name: true,
-        email: true,
-        role: true,
-      },
+      select: AUTH_USER_SELECT,
     });
 
-    if (existingUser) return existingUser;
+    if (existingUser) return toAuthUser(existingUser);
 
     if (await this.prisma.user.findUnique({ where: { email: profile.email }, select: { id: true } })) {
       throw new ConflictException("Entre com a conta local e vincule o Google explicitamente.");
@@ -206,14 +202,15 @@ export class AuthService {
 
     const fallbackName = profile.name?.trim() || profile.email.split("@")[0];
     try {
-      return await this.prisma.user.create({
+      const createdUser = await this.prisma.user.create({
         data: { name: fallbackName, email: profile.email, googleSub: profile.sub, role: "user" },
-        select: { id: true, name: true, email: true, role: true },
+        select: AUTH_USER_SELECT,
       });
+      return toAuthUser(createdUser);
     } catch (error) {
       if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
-        const sameSub = await this.prisma.user.findUnique({ where: { googleSub: profile.sub }, select: { id: true, name: true, email: true, role: true } });
-        if (sameSub) return sameSub;
+        const sameSub = await this.prisma.user.findUnique({ where: { googleSub: profile.sub }, select: AUTH_USER_SELECT });
+        if (sameSub) return toAuthUser(sameSub);
         throw new ConflictException("E-mail já pertence a outra conta.");
       }
       throw error;
@@ -227,7 +224,8 @@ export class AuthService {
     const target = await this.prisma.user.findUnique({ where: { id: userId }, select: { googleSub: true } });
     if (!target || (target.googleSub && target.googleSub !== profile.sub)) throw new ConflictException("Conta já vinculada a outra identidade Google.");
     try {
-      return await this.prisma.user.update({ where: { id: userId }, data: { googleSub: profile.sub }, select: { id: true, name: true, email: true, role: true } });
+      const linkedUser = await this.prisma.user.update({ where: { id: userId }, data: { googleSub: profile.sub }, select: AUTH_USER_SELECT });
+      return toAuthUser(linkedUser);
     } catch (error) {
       if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") throw new ConflictException("Identidade Google já vinculada.");
       throw error;

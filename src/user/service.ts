@@ -8,7 +8,11 @@ import {
 import * as bcrypt from "bcrypt";
 import { PrismaService } from "../prisma-services/prisma.service";
 import { UpdateUserDto } from "./dto/updated.dto";
-import { AuthUser } from "../auth/auth.types";
+import {
+  AUTH_USER_SELECT,
+  AuthUser,
+  toAuthUser,
+} from "../auth/auth.types";
 
 const PROFILE_SELECT = {
   id: true,
@@ -74,17 +78,12 @@ export class UserService {
   async getAuthUserById(id: string): Promise<AuthUser> {
     const user = await this.prisma.user.findUnique({
       where: { id },
-      select: {
-        id: true,
-        name: true,
-        email: true,
-        role: true,
-      },
+      select: AUTH_USER_SELECT,
     });
     if (!user) {
       throw new NotFoundException("Usuário não encontrado");
     }
-    return user;
+    return toAuthUser(user);
   }
 
   async update(id: string, data: UpdateUserDto, authenticatedId: string) {

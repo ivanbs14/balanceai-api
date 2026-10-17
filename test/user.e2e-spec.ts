@@ -52,6 +52,7 @@ describe("User access (real guard and pipe, fake persistence)", () => {
       document: "123",
       email: "a@test.com",
       role: "user",
+      googleSub: null,
       password: await bcrypt.hash("old-password", 10),
       createdAt: new Date(),
     };
@@ -142,6 +143,7 @@ describe("User access (real guard and pipe, fake persistence)", () => {
       name: "A",
       email: "a@test.com",
       role: "user",
+      googleLinked: false,
     });
     const cookies = login.headers["set-cookie"] as unknown as string[];
     expect(cookies[0]).toContain("HttpOnly");
@@ -243,6 +245,7 @@ describe("User access (real guard and pipe, fake persistence)", () => {
       .expect(409);
   });
   it("preserves auth/me projection", async () => {
+    row.googleSub = "google-sub";
     const result = await request(app.getHttpServer())
       .get("/auth/me")
       .set("Cookie", cookie)
@@ -252,6 +255,8 @@ describe("User access (real guard and pipe, fake persistence)", () => {
       name: "A",
       email: "a@test.com",
       role: "user",
+      googleLinked: true,
     });
+    expect(result.body.user.googleSub).toBeUndefined();
   });
 });
