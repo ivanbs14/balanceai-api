@@ -1,4 +1,4 @@
-import { BadRequestException, NotFoundException } from "@nestjs/common";
+import { BadRequestException, ConflictException, NotFoundException } from "@nestjs/common";
 import {
   FixedCostMonthlyStatus,
   FixedCostRecurrence,
@@ -24,7 +24,9 @@ describe("FixedCostService", () => {
       updateMany: jest.fn(),
       count: jest.fn(),
       upsert: jest.fn(),
+      deleteMany: jest.fn(),
     },
+    $executeRaw: jest.fn(),
     $transaction: jest.fn(async (callback: any) => callback(prismaMock)),
   } as any;
 
@@ -62,6 +64,53 @@ describe("FixedCostService", () => {
         startDate: new Date("2026-07-15"),
       }),
     });
+  });
+
+  it("should persist a valid optional endDate", async () => {
+    prismaMock.fixedCost.create.mockResolvedValue({ id: "fixed-1" });
+
+    await service.create(
+      {
+        name: "Curso",
+        defaultAmount: "250.00",
+        category: TransationCategory.EDUCATION,
+        paymentMethod: TransationPaymentMethod.PIX,
+        recurrence: FixedCostRecurrence.MONTHLY,
+        startDate: "2027-01-15",
+        endDate: "2027-06-15",
+        dueDay: 15,
+      },
+      "user-1",
+    );
+
+    expect(prismaMock.fixedCost.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        startDate: new Date("2027-01-15T00:00:00.000Z"),
+        endDate: new Date("2027-06-15T00:00:00.000Z"),
+      }),
+    });
+  });
+
+  it.each([
+    ["2026-12-15", FixedCostRecurrence.MONTHLY],
+    ["2027-06-20", FixedCostRecurrence.MONTHLY],
+    ["2027-06-15", FixedCostRecurrence.QUARTERLY],
+  ])("should reject invalid endDate %s for %s", async (endDate, recurrence) => {
+    await expect(
+      service.create(
+        {
+          name: "Curso",
+          defaultAmount: "250.00",
+          category: TransationCategory.EDUCATION,
+          paymentMethod: TransationPaymentMethod.PIX,
+          recurrence,
+          startDate: "2027-01-15",
+          endDate,
+          dueDay: 15,
+        },
+        "user-1",
+      ),
+    ).rejects.toBeInstanceOf(BadRequestException);
   });
 
   it("should only project active recurring costs for eligible competences", async () => {
@@ -158,6 +207,27 @@ describe("FixedCostService", () => {
         }),
       ],
     });
+  });
+
+  it("should include the final competence and exclude the following one", async () => {
+    const row = {
+      id: "fixed-ended",
+      userId: "user-1",
+      name: "Curso",
+      defaultAmount: "250.00",
+      category: TransationCategory.EDUCATION,
+      paymentMethod: TransationPaymentMethod.PIX,
+      recurrence: FixedCostRecurrence.MONTHLY,
+      startDate: new Date("2027-01-15T00:00:00.000Z"),
+      endDate: new Date("2027-06-15T00:00:00.000Z"),
+      dueDay: 15,
+      isActive: true,
+      monthlys: [],
+    };
+    prismaMock.fixedCost.findMany.mockResolvedValue([row]);
+
+    expect((await service.findByUserIdAndMonth("user-1", "2027-06")).data).toHaveLength(1);
+    expect((await service.findByUserIdAndMonth("user-1", "2027-07")).data).toHaveLength(0);
   });
 
   it("should keep paid competence visible even when fixed cost is inactive", async () => {
@@ -262,6 +332,49 @@ describe("FixedCostService", () => {
       data: {
         amount: "150.00",
       },
+    });
+  });
+
+  it("should require confirmation before shortening and delete pending rows atomically after confirmation", async () => {
+    prismaMock.fixedCost.findFirst.mockResolvedValue({
+      id: "fixed-1",
+      userId: "user-1",
+      recurrence: FixedCostRecurrence.MONTHLY,
+      startDate: new Date("2027-01-15T00:00:00.000Z"),
+      endDate: null,
+    });
+    prismaMock.fixedCostMonthly.count
+      .mockResolvedValueOnce(0)
+      .mockResolvedValueOnce(2);
+
+    await expect(
+      service.update("fixed-1", "user-1", { endDate: "2027-06-15" }),
+    ).rejects.toBeInstanceOf(ConflictException);
+
+    prismaMock.fixedCostMonthly.count
+      .mockResolvedValueOnce(0)
+      .mockResolvedValueOnce(2);
+    prismaMock.fixedCostMonthly.deleteMany.mockResolvedValue({ count: 2 });
+    prismaMock.fixedCost.update.mockResolvedValue({ id: "fixed-1" });
+
+    await service.update("fixed-1", "user-1", {
+      endDate: "2027-06-15",
+      confirmEndDateChange: true,
+    });
+
+    expect(prismaMock.fixedCostMonthly.deleteMany).toHaveBeenCalledWith({
+      where: expect.objectContaining({
+        fixedCostId: "fixed-1",
+        competence: { gt: "2027-06" },
+        status: FixedCostMonthlyStatus.PENDING,
+        transactionId: null,
+      }),
+    });
+    expect(prismaMock.fixedCost.update).toHaveBeenCalledWith({
+      where: { id: "fixed-1", userId: "user-1" },
+      data: expect.objectContaining({
+        endDate: new Date("2027-06-15T00:00:00.000Z"),
+      }),
     });
   });
 });

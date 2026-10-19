@@ -29,6 +29,10 @@ export class UpdateFixedCostDto {
   @Matches(/^\d{4}-(0[1-9]|1[0-2])-\d{2}$/)
   startDate?: string;
 
+  @ValidateIf((_, value) => value !== undefined && value !== null)
+  @Matches(/^\d{4}-(0[1-9]|1[0-2])-\d{2}$/)
+  endDate?: string | null;
+
   @ValidateIf((_, value) => value !== undefined)
   @IsInt({ message: 'O dia de vencimento deve ser um número inteiro.' })
   @Min(1, { message: 'O dia de vencimento mínimo é 1.' })
@@ -38,6 +42,10 @@ export class UpdateFixedCostDto {
   @ValidateIf((_, value) => value !== undefined)
   @IsBoolean()
   isActive?: boolean;
+
+  @ValidateIf((_, value) => value !== undefined)
+  @IsBoolean()
+  confirmEndDateChange?: boolean;
 
   @ValidateIf((_, value) => value !== undefined)
   @IsString()

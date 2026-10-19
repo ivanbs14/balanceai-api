@@ -27,6 +27,19 @@ describe("Cards and fixed costs access (real HTTP, fake persistence)", () => {
           : row[key] === value || (value === null && row[key] === undefined),
       ),
     );
+  const matchesMonthlyWhere = (row: any, where: Record<string, any>) => {
+    if (where.fixedCostId !== undefined && row.fixedCostId !== where.fixedCostId) return false;
+    if (where.status !== undefined && row.status !== where.status) return false;
+    if (where.transactionId === null && row.transactionId != null) return false;
+    if (where.competence?.gt && row.competence <= where.competence.gt) return false;
+    if (where.OR) {
+      return where.OR.some((clause: any) =>
+        (clause.status !== undefined && row.status === clause.status) ||
+        (clause.transactionId?.not === null && row.transactionId != null),
+      );
+    }
+    return true;
+  };
   const prisma = {
     card: {
       create: jest.fn(async ({ data }) => {
@@ -84,7 +97,7 @@ describe("Cards and fixed costs access (real HTTP, fake persistence)", () => {
       }),
     },
     fixedCostMonthly: {
-      count: jest.fn(async ({ where }) => filter(monthlys, where).length),
+      count: jest.fn(async ({ where }) => monthlys.filter((row) => matchesMonthlyWhere(row, where)).length),
       findUnique: jest.fn(
         async ({ where }) =>
           monthlys.find(
@@ -117,6 +130,11 @@ describe("Cards and fixed costs access (real HTTP, fake persistence)", () => {
         rows.forEach((row) => Object.assign(row, data));
         return { count: rows.length };
       }),
+      deleteMany: jest.fn(async ({ where }) => {
+        const removed = monthlys.filter((row) => matchesMonthlyWhere(row, where));
+        monthlys = monthlys.filter((row) => !removed.includes(row));
+        return { count: removed.length };
+      }),
     },
     transation: {
       findMany: jest.fn(async ({ where, skip = 0, take }) =>
@@ -127,6 +145,7 @@ describe("Cards and fixed costs access (real HTTP, fake persistence)", () => {
       ),
       count: jest.fn(async ({ where }) => filter(transactions, where).length),
     },
+    $executeRaw: jest.fn(async () => 1),
     $transaction: jest.fn(async (callback) => callback(prisma)),
   };
   const own = (path: string) =>
@@ -489,5 +508,46 @@ describe("Cards and fixed costs access (real HTTP, fake persistence)", () => {
     expect(monthlys[2].amount).toBe("650.00");
     expect(monthlys[3].amount).toBe("700.00");
     expect(monthlys[0].amount).toBe("550.00");
+  });
+
+  it("validates, confirms and applies the monthly recurrence end date", async () => {
+    await request(app.getHttpServer())
+      .post("/fixed-costs")
+      .set("Cookie", cookieA)
+      .send({ ...costInput, startDate: "2026-10-15", dueDay: 15, endDate: "2026-12-15" })
+      .expect(201)
+      .expect(({ body }) => {
+        expect(body.endDate).toBe("2026-12-15T00:00:00.000Z");
+      });
+
+    await request(app.getHttpServer())
+      .post("/fixed-costs")
+      .set("Cookie", cookieA)
+      .send({ ...costInput, startDate: "2026-10-15", dueDay: 15, endDate: "2026-12-20" })
+      .expect(400);
+
+    monthlys = [
+      { id: "future-1", fixedCostId: "cost-a", competence: "2026-12", status: "PENDING", amount: "500.00", transactionId: null },
+    ];
+    const conflict = await request(app.getHttpServer())
+      .patch("/fixed-costs/cost-a")
+      .set("Cookie", cookieA)
+      .send({ endDate: "2026-11-01" })
+      .expect(409);
+    expect(conflict.body).toMatchObject({
+      code: "FIXED_COST_END_DATE_CONFIRMATION_REQUIRED",
+      pendingMonthlyCount: 1,
+    });
+
+    await request(app.getHttpServer())
+      .patch("/fixed-costs/cost-a")
+      .set("Cookie", cookieA)
+      .send({ endDate: "2026-11-01", confirmEndDateChange: true })
+      .expect(200);
+    expect(monthlys).toHaveLength(0);
+    expect(costs[0].endDate).toEqual(new Date("2026-11-01T00:00:00.000Z"));
+    expect(
+      (await own("/fixed-costs?month=2026-12").expect(200)).body.data.map((row) => row.id),
+    ).not.toContain("cost-a");
   });
 });

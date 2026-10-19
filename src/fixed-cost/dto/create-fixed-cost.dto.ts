@@ -23,6 +23,10 @@ export class CreateFixedCostDto {
   @Matches(/^\d{4}-(0[1-9]|1[0-2])-\d{2}$/)
   startDate: string;
 
+  @IsOptional()
+  @Matches(/^\d{4}-(0[1-9]|1[0-2])-\d{2}$/)
+  endDate?: string | null;
+
   @IsInt({ message: 'O dia de vencimento deve ser um número inteiro.' })
   @Min(1, { message: 'O dia de vencimento mínimo é 1.' })
   @Max(31, { message: 'O dia de vencimento máximo é 31.' })

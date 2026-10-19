@@ -35,6 +35,22 @@ export class FixedCostService {
     return fixedCost;
   }
 
+  private async lockOwned(
+    tx: Prisma.TransactionClient,
+    id: string,
+    userId: string,
+  ) {
+    this.validateId(id);
+    await tx.$executeRaw`
+      SELECT 1 FROM "FixedCost"
+      WHERE "id" = ${id} AND "userId" = ${userId}
+      FOR UPDATE
+    `;
+    const fixedCost = await tx.fixedCost.findFirst({ where: { id, userId } });
+    if (!fixedCost) throw new NotFoundException("Custo fixo não encontrado.");
+    return fixedCost;
+  }
+
   private rethrowMissing(error: unknown): never {
     if (
       error instanceof Prisma.PrismaClientKnownRequestError &&
@@ -62,9 +78,27 @@ export class FixedCostService {
     parseCompetence(competence);
   }
 
+  private validateSchedule(params: {
+    recurrence: FixedCostRecurrence;
+    startDate: Date;
+    endDate: Date | null;
+  }) {
+    if (!params.endDate) return;
+    if (params.recurrence !== FixedCostRecurrence.MONTHLY) {
+      throw new BadRequestException("A data final só pode ser usada em recorrências mensais.");
+    }
+    if (params.endDate.getTime() < params.startDate.getTime()) {
+      throw new BadRequestException("A data final deve ser igual ou posterior à data inicial.");
+    }
+    if (params.endDate.getUTCDate() !== params.startDate.getUTCDate()) {
+      throw new BadRequestException("A data final deve manter o mesmo dia da data inicial.");
+    }
+  }
+
   private isRecurrenceDueForMonth(params: {
     recurrence: FixedCostRecurrence;
     startDate: Date;
+    endDate?: Date | null;
     competence: string;
   }) {
     const startMonthIndex = this.getMonthIndex(params.startDate);
@@ -72,6 +106,13 @@ export class FixedCostService {
     const monthDelta = competenceMonthIndex - startMonthIndex;
 
     if (monthDelta < 0) {
+      return false;
+    }
+
+    if (
+      params.endDate &&
+      competenceMonthIndex > this.getMonthIndex(params.endDate)
+    ) {
       return false;
     }
 
@@ -86,6 +127,9 @@ export class FixedCostService {
   }
 
   async create(data: CreateFixedCostDto, userId: string) {
+    const startDate = this.normalizeDateInput(data.startDate);
+    const endDate = data.endDate ? this.normalizeDateInput(data.endDate) : null;
+    this.validateSchedule({ recurrence: data.recurrence, startDate, endDate });
     return this.prisma.fixedCost.create({
       data: {
         name: data.name,
@@ -94,7 +138,8 @@ export class FixedCostService {
         category: data.category,
         paymentMethod: data.paymentMethod,
         recurrence: data.recurrence,
-        startDate: this.normalizeDateInput(data.startDate),
+        startDate,
+        endDate,
         dueDay: data.dueDay,
         isActive: data.isActive ?? true,
       },
@@ -148,6 +193,7 @@ export class FixedCostService {
             this.isRecurrenceDueForMonth({
               recurrence: fixedCost.recurrence,
               startDate: fixedCost.startDate,
+              endDate: fixedCost.endDate,
               competence,
             });
           const shouldKeepPaidHistory =
@@ -183,9 +229,73 @@ export class FixedCostService {
   }
 
   async update(id: string, userId: string, data: UpdateFixedCostDto) {
-    await this.requireOwned(id, userId);
     try {
       return await this.prisma.$transaction(async (tx) => {
+        const current = await this.lockOwned(tx, id, userId);
+
+        const recurrence = data.recurrence ?? current.recurrence;
+        const startDate = data.startDate !== undefined
+          ? this.normalizeDateInput(data.startDate)
+          : current.startDate;
+        const endDate = data.endDate !== undefined
+          ? data.endDate === null
+            ? null
+            : this.normalizeDateInput(data.endDate)
+          : current.endDate;
+        this.validateSchedule({ recurrence, startDate, endDate });
+
+        const currentEndMonth = current.endDate
+          ? this.getMonthIndex(current.endDate)
+          : null;
+        const nextEndMonth = endDate ? this.getMonthIndex(endDate) : null;
+        const shortensRecurrence = nextEndMonth !== null &&
+          (currentEndMonth === null || nextEndMonth < currentEndMonth);
+
+        if (shortensRecurrence && endDate) {
+          const endCompetence = endDate.toISOString().slice(0, 7);
+          const protectedMonthlyCount = await tx.fixedCostMonthly.count({
+            where: {
+              fixedCostId: id,
+              competence: { gt: endCompetence },
+              OR: [
+                { status: FixedCostMonthlyStatus.PAID },
+                { transactionId: { not: null } },
+              ],
+            },
+          });
+          if (protectedMonthlyCount > 0) {
+            throw new ConflictException({
+              code: "FIXED_COST_END_DATE_PROTECTED_HISTORY",
+              protectedMonthlyCount,
+              message: "Existem mensalidades posteriores pagas ou vinculadas.",
+            });
+          }
+
+          const pendingMonthlyCount = await tx.fixedCostMonthly.count({
+            where: {
+              fixedCostId: id,
+              competence: { gt: endCompetence },
+              status: FixedCostMonthlyStatus.PENDING,
+              transactionId: null,
+            },
+          });
+          if (!data.confirmEndDateChange) {
+            throw new ConflictException({
+              code: "FIXED_COST_END_DATE_CONFIRMATION_REQUIRED",
+              pendingMonthlyCount,
+              message: "Confirme o encerramento da recorrência.",
+            });
+          }
+          await tx.fixedCostMonthly.deleteMany({
+            where: {
+              fixedCostId: id,
+              competence: { gt: endCompetence },
+              status: FixedCostMonthlyStatus.PENDING,
+              transactionId: null,
+            },
+          });
+        }
+
         const updatedFixedCost = await tx.fixedCost.update({
           where: { id, userId },
           data: {
@@ -201,8 +311,9 @@ export class FixedCostService {
             ? { recurrence: data.recurrence }
             : {}),
           ...(data.startDate !== undefined
-            ? { startDate: this.normalizeDateInput(data.startDate) }
+            ? { startDate }
             : {}),
+          ...(data.endDate !== undefined ? { endDate } : {}),
           ...(data.dueDay !== undefined ? { dueDay: data.dueDay } : {}),
           ...(data.isActive !== undefined ? { isActive: data.isActive } : {}),
           },
@@ -219,7 +330,7 @@ export class FixedCostService {
           });
         }
         return updatedFixedCost;
-      });
+      }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
     } catch (error) {
       this.rethrowMissing(error);
     }
@@ -246,11 +357,6 @@ export class FixedCostService {
     data: UpdateFixedCostMonthlyDto,
   ) {
     this.validateCompetence(competence);
-    const fixedCost = await this.requireOwned(id, userId);
-    if (!this.isRecurrenceDueForMonth({ recurrence: fixedCost.recurrence, startDate: fixedCost.startDate, competence })) {
-      throw new BadRequestException("Competência fora da recorrência do custo fixo.");
-    }
-
     const paidAt =
       data.status === FixedCostMonthlyStatus.PAID
         ? data.paidAt
@@ -260,6 +366,10 @@ export class FixedCostService {
 
     try {
       return await this.prisma.$transaction(async (tx) => {
+        const fixedCost = await this.lockOwned(tx, id, userId);
+        if (!this.isRecurrenceDueForMonth({ recurrence: fixedCost.recurrence, startDate: fixedCost.startDate, endDate: fixedCost.endDate, competence })) {
+          throw new BadRequestException("Competência fora da recorrência do custo fixo.");
+        }
         const where = { fixedCostId_competence: { fixedCostId: id, competence } };
         const existing = await tx.fixedCostMonthly.findUnique({ where });
         const amount = data.amount ?? existing?.amount ?? fixedCost.defaultAmount;
@@ -287,12 +397,12 @@ export class FixedCostService {
 
   async linkMonthly(id: string, userId: string, competence: string, transactionId: string) {
     this.validateCompetence(competence);
-    const fixedCost = await this.requireOwned(id, userId);
-    if (!this.isRecurrenceDueForMonth({ recurrence: fixedCost.recurrence, startDate: fixedCost.startDate, competence })) {
-      throw new BadRequestException("Competência fora da recorrência do custo fixo.");
-    }
     try {
       return await this.prisma.$transaction(async (tx) => {
+        const fixedCost = await this.lockOwned(tx, id, userId);
+        if (!this.isRecurrenceDueForMonth({ recurrence: fixedCost.recurrence, startDate: fixedCost.startDate, endDate: fixedCost.endDate, competence })) {
+          throw new BadRequestException("Competência fora da recorrência do custo fixo.");
+        }
         const transaction = await tx.transation.findFirst({ where: { id: transactionId, userId, type: TransationType.EXPENSE } });
         if (!transaction || transaction.Date.toISOString().slice(0, 7) !== competence) {
           throw new BadRequestException("Transação de despesa e competência do mesmo titular são obrigatórias.");
@@ -326,14 +436,19 @@ export class FixedCostService {
 
   async unlinkMonthly(id: string, userId: string, competence: string) {
     this.validateCompetence(competence);
-    await this.requireOwned(id, userId);
-    const monthly = await this.prisma.fixedCostMonthly.findUnique({ where: { fixedCostId_competence: { fixedCostId: id, competence } } });
-    if (!monthly?.transactionId) throw new NotFoundException("Vínculo não encontrado.");
     try {
-      return await this.prisma.fixedCostMonthly.update({
-        where: { id: monthly.id, transactionId: monthly.transactionId },
-        data: { transactionId: null },
-      });
+      return await this.prisma.$transaction(async (tx) => {
+        const fixedCost = await this.lockOwned(tx, id, userId);
+        if (!this.isRecurrenceDueForMonth({ recurrence: fixedCost.recurrence, startDate: fixedCost.startDate, endDate: fixedCost.endDate, competence })) {
+          throw new BadRequestException("Competência fora da recorrência do custo fixo.");
+        }
+        const monthly = await tx.fixedCostMonthly.findUnique({ where: { fixedCostId_competence: { fixedCostId: id, competence } } });
+        if (!monthly?.transactionId) throw new NotFoundException("Vínculo não encontrado.");
+        return tx.fixedCostMonthly.update({
+          where: { id: monthly.id, transactionId: monthly.transactionId },
+          data: { transactionId: null },
+        });
+      }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
     } catch (error) {
       this.rethrowMissing(error);
     }

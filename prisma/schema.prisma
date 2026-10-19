@@ -84,6 +84,7 @@ model FixedCost {
   paymentMethod  TransationPaymentMethod
   recurrence     FixedCostRecurrence   @default(MONTHLY)
   startDate      DateTime
+  endDate        DateTime?
   dueDay         Int
   isActive       Boolean              @default(true)
   createdAt      DateTime             @default(now())
